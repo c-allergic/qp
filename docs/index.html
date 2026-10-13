@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>qp · 追问树 — 把「我为什么会问这个问题」记成一棵树</title>
+<meta name="description" content="qp 是一个追问链路记录器：读论文、啃新东西时把每次追问记成树上的一块气泡，根节点永远钉着你最初想问什么。单文件 Python + 本地 Web UI，零第三方依赖。">
+<meta name="theme-color" content="#ffffff">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23000'/><text x='16' y='23' font-size='19' text-anchor='middle' fill='%23fff' font-family='cursive'>q</text></svg>">
+<style>
+:root{
+  --ink:#000; --ink2:#333; --ink3:#666; --ink4:#999;
+  --paper:#fff; --paper2:#fafafa; --paper3:#f2f2f2; --line:#e4e4e4;
+  --hl:#f6e7b2; --hl2:#efe0a8;
+  --hand:"Comic Sans MS","Comic Sans","Chalkboard SE","Marker Felt",cursive;
+  --sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"JetBrains Mono",monospace;
+  --w:1080px;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0;background:var(--paper);color:var(--ink);
+  font-family:var(--sans);font-size:16px;line-height:1.75;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:var(--ink);text-decoration:none}
+code{font-family:var(--mono);font-size:.9em;background:var(--paper3);border-radius:4px;padding:1px 5px}
+.wrap{max-width:var(--w);margin:0 auto;padding:0 24px}
+.hand{font-family:var(--hand)}
+
+/* ---------- 顶栏：直接照着应用的样子来 ---------- */
+header{
+  position:sticky;top:0;z-index:50;height:52px;display:flex;align-items:center;gap:10px;
+  padding:0 18px;background:rgba(255,255,255,.92);backdrop-filter:blur(8px);
+  border-bottom:1.5px solid var(--ink);
+}
+header .logo{font-family:var(--hand);font-size:16px;white-space:nowrap}
+header .sp{flex:1}
+.btn{
+  font-family:var(--hand);font-size:13px;cursor:pointer;background:var(--paper);color:var(--ink);
+  border:1.5px solid var(--ink);border-radius:8px;padding:5px 12px;display:inline-block;
+  transition:background .15s,color .15s;
+}
+.btn:hover{background:var(--ink);color:var(--paper)}
+.btn.solid{background:var(--ink);color:var(--paper)}
+.btn.solid:hover{background:var(--paper);color:var(--ink)}
+
+/* ---------- 网格底：应用画布的那张纸 ---------- */
+.gridbg{
+  background-color:var(--paper);
+  background-image:linear-gradient(var(--line) 1px,transparent 1px),
+                   linear-gradient(90deg,var(--line) 1px,transparent 1px);
+  background-size:24px 24px;
+}
+
+/* ---------- Hero ---------- */
+.hero{border-bottom:1.5px solid var(--ink);padding:88px 0 76px}
+.hero h1{
+  font-family:var(--hand);font-size:clamp(30px,5.2vw,58px);line-height:1.22;
+  margin:0 0 22px;letter-spacing:-.5px;max-width:15ch;
+}
+.hero h1 em{font-style:normal;background:linear-gradient(transparent 62%,var(--hl) 62%)}
+.hero p.lead{font-size:17px;color:var(--ink2);max-width:62ch;margin:0 0 30px}
+.hero p.lead b{color:var(--ink)}
+.cta{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+
+.snippet{
+  margin-top:34px;background:var(--paper);border:1.5px solid var(--ink);border-radius:10px;
+  max-width:660px;overflow:hidden;
+}
+.snippet .bar{
+  display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1.5px solid var(--ink);
+  background:var(--paper3);font-family:var(--hand);font-size:12px;color:var(--ink2);
+}
+.snippet .bar .sp{flex:1}
+.snippet pre{
+  margin:0;padding:13px 14px;overflow-x:auto;font-family:var(--mono);font-size:12.5px;
+  line-height:1.85;color:var(--ink2);
+}
+.snippet pre .c{color:var(--ink4)}
+.snippet pre .p{color:var(--ink)}
+
+/* ---------- 通用 section ---------- */
+section{border-bottom:1.5px solid var(--ink);padding:74px 0}
+.eyebrow{
+  font-family:var(--hand);font-size:12px;color:var(--ink3);letter-spacing:.04em;
+  display:flex;align-items:center;gap:8px;margin:0 0 14px;
+}
+.eyebrow::before{content:"";width:22px;height:1.5px;background:var(--ink3);display:block}
+h2{font-family:var(--hand);font-size:clamp(22px,3vw,32px);margin:0 0 16px;line-height:1.35}
+h3{font-family:var(--hand);font-size:17px;margin:0 0 8px}
+p{color:var(--ink2);margin:0 0 14px}
+.quote{
+  border-left:3px solid var(--ink);padding:2px 0 2px 18px;margin:26px 0;color:var(--ink);
+  font-size:17px;max-width:64ch;
+}
+
+/* ---------- 演示窗 ---------- */
+.demo{
+  border:2px solid var(--ink);border-radius:12px;overflow:hidden;background:var(--paper);
+  box-shadow:6px 6px 0 var(--paper3);
+}
+.demo .top{
+  height:44px;display:flex;align-items:center;gap:8px;padding:0 12px;
+  border-bottom:1.5px solid var(--ink);font-family:var(--hand);font-size:13px;flex-wrap:wrap;
+}
+.demo .top .logo{white-space:nowrap}
+.demo .top .tb{
+  border:1.5px solid var(--ink);border-radius:8px;padding:2px 9px;font-size:12px;
+  font-family:var(--hand);background:var(--paper);white-space:nowrap;
+}
+.demo .top .tb.on{background:var(--ink);color:var(--paper)}
+.demo .top .sp{flex:1}
+.demo .body{display:flex;min-height:430px}
+.demo .stage{
+  flex:1;position:relative;overflow:auto;min-width:0;
+  background-color:var(--paper);
+  background-image:linear-gradient(var(--line) 1px,transparent 1px),
+                   linear-gradient(90deg,var(--line) 1px,transparent 1px);
+  background-size:24px 24px;
+}
+#d-canvas{position:relative;width:790px;height:420px}
+#d-edges{position:absolute;left:0;top:0;width:1px;height:1px;overflow:visible;pointer-events:none}
+#d-edges path{fill:none;stroke:#c6c6c6;stroke-width:1.5}
+#d-edges path.main{stroke:var(--ink)}
+#d-edges path.flash{stroke-dasharray:1200;stroke-dashoffset:1200;animation:draw .5s ease forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+
+.dn{position:absolute;width:190px;padding-top:26px;cursor:grab}
+.dn.drag{cursor:grabbing;z-index:9}
+.dn .acts{
+  position:absolute;top:0;left:0;right:0;height:22px;display:flex;gap:5px;justify-content:flex-end;
+  opacity:0;pointer-events:none;transition:opacity .08s;
+}
+.dn:hover .acts{opacity:1;pointer-events:auto}
+.dn .acts button{
+  width:22px;height:22px;padding:0;border:1.5px solid var(--ink);border-radius:7px;background:var(--paper);
+  color:var(--ink);font-size:12px;line-height:1;cursor:pointer;font-family:var(--sans);
+}
+.dn .acts button:hover{background:var(--ink);color:var(--paper)}
+.dn .bub{
+  background:var(--paper);border:2px solid var(--ink);border-radius:10px;padding:9px 11px;
+  font-family:var(--hand);font-size:13.5px;line-height:1.5;word-break:break-word;
+}
+.dn.sel .bub{box-shadow:0 0 0 4px var(--hl)}
+.dn.closed .bub{border-style:dashed}
+.dn .bub .tick{float:right;margin-left:6px;color:var(--ink3)}
+.dn.added .bub{animation:pop .28s ease}
+@keyframes pop{from{transform:scale(.9);opacity:0}to{transform:scale(1);opacity:1}}
+.dn.enter{animation:pop .28s ease}
+
+.demo .side{
+  width:292px;flex:none;border-left:1.5px solid var(--ink);padding:14px;display:flex;
+  flex-direction:column;gap:12px;background:var(--paper);
+}
+.demo .side .tabs{display:flex;gap:6px}
+.demo .side .tabs button{
+  font-family:var(--hand);font-size:12px;border:1.5px solid var(--ink);border-radius:8px;
+  background:var(--paper);color:var(--ink);padding:2px 10px;cursor:pointer;
+}
+.demo .side .tabs button.on{background:var(--ink);color:var(--paper)}
+.demo .side .field .k{font-family:var(--hand);font-size:11px;color:var(--ink3);margin-bottom:4px}
+.demo .side .field .v{
+  font-family:var(--hand);font-size:13px;line-height:1.55;border:1.5px solid var(--line);
+  border-radius:8px;padding:7px 9px;background:var(--paper2);min-height:38px;
+}
+.demo .side textarea{
+  width:100%;font-family:var(--hand);font-size:13px;line-height:1.55;color:var(--ink);
+  background:var(--paper);border:1.5px solid var(--ink);border-radius:8px;padding:7px 9px;
+  resize:none;outline:none;
+}
+.demo .side textarea:focus{background:var(--paper2)}
+.demo .side .row{display:flex;gap:7px;flex-wrap:wrap}
+.demo .side .row button{
+  font-family:var(--hand);font-size:12.5px;border:1.5px solid var(--ink);border-radius:8px;
+  background:var(--paper);color:var(--ink);padding:4px 11px;cursor:pointer;
+}
+.demo .side .row button:hover{background:var(--ink);color:var(--paper)}
+.demo .side .empty{
+  font-family:var(--hand);font-size:12.5px;color:var(--ink4);padding:10px 2px;line-height:1.7;
+}
+.chatline{font-family:var(--hand);font-size:12.5px;line-height:1.6;margin-bottom:9px}
+.chatline .who{color:var(--ink3);font-size:11px;display:block;margin-bottom:2px}
+.chatline.me .bd{background:var(--paper3);border-radius:8px;padding:6px 9px}
+.chatline.ai .bd{border:1.5px solid var(--ink);border-radius:8px;padding:6px 9px}
+
+.demo .hintline{
+  font-family:var(--hand);font-size:12px;color:var(--ink3);margin-top:14px;
+  display:flex;gap:14px;flex-wrap:wrap;
+}
+.demo .hintline b{color:var(--ink)}
+
+/* ---------- AI 梳理演示 ---------- */
+.aidemo{border:2px solid var(--ink);border-radius:12px;overflow:hidden;box-shadow:6px 6px 0 var(--paper3)}
+.aidemo .bar{
+  display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1.5px solid var(--ink);
+  background:var(--paper3);flex-wrap:wrap;
+}
+.aidemo .bar .sp{flex:1}
+.aidemo .bar .note{font-family:var(--hand);font-size:12px;color:var(--ink3)}
+#ai-out{
+  display:block;width:100%;min-height:250px;max-height:52vh;overflow:auto;border:0;outline:none;
+  padding:15px 16px;font-family:var(--mono);font-size:12.5px;line-height:1.85;color:var(--ink2);
+  background:var(--paper);white-space:pre-wrap;word-break:break-word;
+}
+#ai-out:empty::before{content:attr(data-ph);color:var(--ink4)}
+#ai-out:focus{background:var(--paper2)}
+
+/* ---------- 功能卡 ---------- */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(268px,1fr));gap:16px;margin-top:26px}
+.card{border:1.5px solid var(--ink);border-radius:11px;padding:17px 17px 15px;background:var(--paper)}
+.card h3{display:flex;align-items:center;gap:8px}
+.card h3 .ic{
+  width:24px;height:24px;flex:none;border:1.5px solid var(--ink);border-radius:7px;
+  display:flex;align-items:center;justify-content:center;font-size:13px;font-family:var(--sans);
+}
+.card p{font-size:14.5px;margin:0;line-height:1.7}
+
+/* ---------- 安装 ---------- */
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:34px;align-items:start;margin-top:10px}
+table.req{width:100%;border-collapse:collapse;font-size:14.5px}
+table.req th,table.req td{border-bottom:1px solid var(--line);padding:9px 6px;text-align:left;vertical-align:top}
+table.req th{font-family:var(--hand);font-weight:400;color:var(--ink3);width:96px}
+table.req td{color:var(--ink2)}
+ol.steps{margin:0;padding-left:20px;color:var(--ink2)}
+ol.steps li{margin-bottom:16px}
+ol.steps code{display:inline-block;margin:4px 0}
+
+/* ---------- footer ---------- */
+footer{padding:40px 0 60px}
+footer .fin{display:flex;gap:16px;flex-wrap:wrap;align-items:center;font-family:var(--hand);font-size:13px;color:var(--ink3)}
+footer .sp{flex:1}
+footer a:hover{background:var(--hl)}
+
+/* ---------- 出场动画 ---------- */
+.rv{opacity:0;transform:translateY(14px);transition:opacity .5s ease,transform .5s ease}
+.rv.in{opacity:1;transform:none}
+
+@media(max-width:860px){
+  .cols{grid-template-columns:1fr;gap:26px}
+  .demo .body{flex-direction:column}
+  .demo .side{width:auto;border-left:0;border-top:1.5px solid var(--ink)}
+  .demo .stage{height:420px}
+}
+@media(prefers-reduced-motion:reduce){
+  .rv{opacity:1;transform:none;transition:none}
+  .dn.enter,.dn.added .bub,#d-edges path.flash{animation:none}
+}
+/* 打印 / 生成整页图时，别让未滚动到的段落还是透明的 */
+@media print{.rv{opacity:1;transform:none;transition:none}}
+</style>
+</head>
+<body>
+
+<header>
+  <span class="logo">qp · 追问树</span>
+  <span class="sp"></span>
+  <a class="btn" href="#demo">看演示</a>
+  <a class="btn" href="#install">安装</a>
+  <a class="btn solid" href="https://github.com/c-allergic/qp">GitHub ↗</a>
+</header>
+
+<!-- ============ HERO ============ -->
+<div class="hero gridbg">
+  <div class="wrap">
+    <h1 class="rv">把「<em>我为什么会问这个问题</em>」记成一棵树</h1>
+    <p class="lead rv">
+      读论文、啃新东西的时候，你一路追问下去，等搞明白回头一看 —— <b>主线没了</b>。<br>
+      <code>qp</code> 把每次追问记成树上的一块气泡：每个气泡是你<b>当时的那句原话</b>，
+      根节点永远钉着你最初想问什么。它不是待办清单，也不是思维导图工具，
+      而是一个「提问过程」的记录器。
+    </p>
+    <div class="cta rv">
+      <a class="btn solid" href="#demo">先玩玩看 ↓</a>
+      <a class="btn" href="https://github.com/c-allergic/qp">在 GitHub 上看</a>
+    </div>
+
+    <div class="snippet rv">
+      <div class="bar">
+        <span>装起来大概这样 ↓</span><span class="sp"></span>
+        <button class="btn" id="copy-cmd" style="padding:2px 9px;font-size:12px">复制</button>
+      </div>
+<pre id="cmd"><span class="c"># 只要 Python 3，没有任何第三方依赖</span>
+git clone https://github.com/c-allergic/qp.git ~/apps/qp
+ln -sf ~/apps/qp/qp.py /opt/homebrew/bin/qp   <span class="c"># Intel Mac 用 /usr/local/bin</span>
+
+cd ~/Documents/我在读的论文
+qp new <span class="p">"为什么 TCP 要三次握手？"</span>
+qp ui                                          <span class="c"># 打开图形界面</span></pre>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 问题 ============ -->
+<section>
+  <div class="wrap">
+    <p class="eyebrow rv">为什么做这个</p>
+    <h2 class="rv">普通的笔记，把最值钱的那一层丢掉了</h2>
+    <p class="quote rv">
+      为了搞懂 A，你去查 B；为了 B，又得先弄清楚 C……等你终于明白 C，<br>已经想不起来自己为什么要出发。
+    </p>
+    <p class="rv" style="max-width:64ch">
+      笔记通常只留下<b>结论</b>：当时卡在哪、为什么会问到这里，这一层不见了。
+      而那恰恰是下次复习、或者同一个知识点再卡住时最值钱的东西。
+    </p>
+    <p class="rv" style="max-width:64ch">
+      所以 qp 做了三个很具体的取舍 —— 根节点永远是你最初的问题；
+      每个子节点记的不是「子议题」，而是「<b>父节点里哪个说法我没懂</b>」；
+      一条分支搞懂了就<b>收口</b>，写下卡点和结论。
+    </p>
+  </div>
+</section>
+
+<!-- ============ 演示 ============ -->
+<section id="demo">
+  <div class="wrap">
+    <p class="eyebrow rv">主要功能</p>
+    <h2 class="rv">先玩玩看 —— 下面这个是能点的</h2>
+    <p class="rv" style="max-width:62ch">
+      一个迷你版：把光标移到气泡上会浮出操作条，点 <b>＋</b> 长出子问题，
+      点气泡看右栏，点「收口」把这条分支打上 ✓。气泡还能拖着走，连线会跟着变。
+    </p>
+
+    <div class="demo rv" id="demo-win">
+      <div class="top">
+        <span class="logo">qp · 追问树</span>
+        <span class="tb">为什么 TCP 要三次握手</span>
+        <span class="sp"></span>
+        <span class="tb">重置布局</span>
+        <span class="tb">导出 md</span>
+        <span class="tb">＋ 新树</span>
+      </div>
+      <div class="body">
+        <div class="stage" id="d-stage">
+          <div id="d-canvas">
+            <svg id="d-edges"></svg>
+          </div>
+        </div>
+        <div class="side">
+          <div class="tabs">
+            <button id="d-tab-node" class="on">节点</button>
+            <button id="d-tab-chat">对话</button>
+          </div>
+          <div id="d-node"></div>
+          <div id="d-chat" style="display:none"></div>
+        </div>
+      </div>
+    </div>
+    <div class="hintline rv">
+      <span><b>＋</b> 加子问题</span>
+      <span><b>✎</b> 改原话</span>
+      <span><b>💬</b> 丢进对话</span>
+      <span><b>✕</b> 删这棵子树</span>
+      <span><b>拖动气泡</b> 连线实时跟着走</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============ AI 梳理 ============ -->
+<section class="gridbg">
+  <div class="wrap">
+    <p class="eyebrow rv">可选 · 需要自己配一个模型</p>
+    <h2 class="rv">AI 梳理：把你想到过的问题，摊平了给你看</h2>
+    <p class="rv" style="max-width:64ch">
+      等整棵树追得差不多了，让它读一遍，然后回答两件事：
+      <b>你在这篇文章里想到了哪些问题</b>，以及<b>每个问题后面跟着什么</b> ——
+      相关的回答，或者由它引出的更深的追问。
+    </p>
+    <p class="rv" style="max-width:64ch">
+      它刻意不套「起点 / 转折 / 卡点 / 最终框架」那种模板，也不给你的思考下
+      「解决了 / 没解决」的结论 —— 很多困惑本来就没有干净的收尾。
+      梳理结果会铺在一个<b>可编辑</b>的框里，你改完再自己决定存不存。
+    </p>
+
+    <div class="aidemo rv">
+      <div class="bar">
+        <button class="btn" id="ai-run">AI 梳理问题脉络</button>
+        <span class="note" id="ai-note">点一下，看看它吐出来什么样</span>
+        <span class="sp"></span>
+        <span class="note">结果是可编辑的 →  改完再「保存 md」</span>
+      </div>
+      <div id="ai-out" contenteditable="true" spellcheck="false"
+           data-ph="（点上面的按钮，梳理结果会流式出现在这里 —— 而且可以直接改）"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 功能卡 ============ -->
+<section>
+  <div class="wrap">
+    <p class="eyebrow rv">还有什么</p>
+    <h2 class="rv">功能一览</h2>
+    <div class="cards">
+      <div class="card rv">
+        <h3><span class="ic">＋</span>一层层追问</h3>
+        <p>点气泡就地变成输入框，回车长出一个子节点。任何节点都能加子问题（不限于叶子），
+           所以树不会退化成一条链。</p>
+      </div>
+      <div class="card rv">
+        <h3><span class="ic">✥</span>自由布局</h3>
+        <p>按住气泡拖动，连线实时跟着变，落点会被记住。摆乱了点「重置布局」一键归位。</p>
+      </div>
+      <div class="card rv">
+        <h3><span class="ic">✓</span>收口</h3>
+        <p>记下「卡点」（父节点里哪个说法没懂）和「已明白」（一句话结论）。
+           收口的分支打 ✓，一眼看出哪些路已经走通。</p>
+      </div>
+      <div class="card rv">
+        <h3><span class="ic">¶</span>笔记</h3>
+        <p>树 = 还没想通、要追下去的东西；笔记 = 已经想通、要成篇写下来的东西。
+           两者并列，markdown + 预览，停手 0.7 秒自动保存。</p>
+      </div>
+      <div class="card rv">
+        <h3><span class="ic">▧</span>图片</h3>
+        <p><b>⌘V</b> 直接粘贴截图，变成一个图片节点；按内容哈希去重，同一张图只存一份。</p>
+      </div>
+      <div class="card rv">
+        <h3><span class="ic">💬</span>对话</h3>
+        <p>右栏多轮 AI 聊天，流式输出、<b>随时可停</b> —— 按停止会同时断掉上游，不继续烧额度。</p>
+      </div>
+      <div class="card rv">
+        <h3><span class="ic">↧</span>导出与分享</h3>
+        <p>导出 markdown；<code>qp render</code> 写出一份自包含的只读快照，
+           对方双击就能看你那棵完整的树，不需要装任何东西。</p>
+      </div>
+      <div class="card rv">
+        <h3><span class="ic">⌘</span>双击就开</h3>
+        <p><code>qp install-app</code> 生成可双击的 <code>qp.app</code>；
+           <code>qp home</code> 是个项目管理器，把本机所有带 qp 的项目列出来。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 安装 ============ -->
+<section id="install">
+  <div class="wrap">
+    <p class="eyebrow rv">安装</p>
+    <h2 class="rv">三个文件，一条软链</h2>
+    <div class="cols">
+      <div class="rv">
+        <h3>环境需求</h3>
+        <table class="req">
+          <tr><th>系统</th><td><b>macOS</b>。原生窗口、双击 app、项目管理器的文件夹选择都依赖 macOS 自带能力；
+              命令行和浏览器界面本身跨平台，但没在 Windows / Linux 上验证过。</td></tr>
+          <tr><th>Python</th><td><b>3.8+</b>，系统自带的就够，<b>零第三方依赖</b>。</td></tr>
+          <tr><th>浏览器</th><td>任意（推荐 Chrome）。装了 pywebview 就用系统原生窗口，不依赖 Chrome。</td></tr>
+          <tr><th>模型</th><td>选填。「对话」和「AI 梳理」需要一个 OpenAI 兼容端点，
+              不配也能用其余全部功能 —— 完全不联网。</td></tr>
+        </table>
+      </div>
+      <div class="rv">
+        <h3>装</h3>
+        <ol class="steps">
+          <li>把 <code>qp.py</code> <code>qp-ui.html</code> <code>qp-home.html</code>
+              放到同一个目录（<b>必须同目录</b>）。</li>
+          <li>加一条软链，让它变成全局命令。</li>
+          <li>在你要读论文的那个目录里 <code>qp init</code>。</li>
+        </ol>
+        <div class="snippet" style="margin-top:6px">
+<pre>git clone https://github.com/c-allergic/qp.git ~/apps/qp
+ln -sf ~/apps/qp/qp.py /opt/homebrew/bin/qp
+
+cd ~/Documents/我在读的论文
+qp init
+qp ui</pre>
+        </div>
+        <p style="margin-top:16px;font-size:14.5px">
+          你写的东西全在<b>运行 qp 的那个目录</b>下的 <code>.qp/</code> 里（隐藏目录，跟 <code>.git</code> 一个道理）——
+          纯 JSON + 按内容哈希命名的图片，可以直接 <code>cat</code>、手工改、<code>git diff</code>。
+          没有账号、没有云同步、没有遥测。
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap fin">
+    <span>qp · 追问树</span>
+    <span class="sp"></span>
+    <a href="https://github.com/c-allergic/qp">GitHub</a>
+    <a href="https://github.com/c-allergic/qp/blob/main/README.md">README</a>
+    <a href="https://github.com/c-allergic/qp/blob/main/DEVELOPMENT.md">设计笔记</a>
+    <a href="https://github.com/c-allergic/qp/blob/main/LICENSE">MIT</a>
+  </div>
+</footer>
+
+<script>
+/* =====================================================================
+   下面全是这一个演示窗用的迷你实现 —— 只为了让访客能上手点两下，
+   真东西在仓库里的 qp.py + qp-ui.html。
+   ===================================================================== */
+(function(){
+  var svg   = document.getElementById('d-edges');
+  var canvas= document.getElementById('d-canvas');
+  var nodeBox = document.getElementById('d-node');
+  var chatBox = document.getElementById('d-chat');
+  var tabNode = document.getElementById('d-tab-node');
+  var tabChat = document.getElementById('d-tab-chat');
+
+  var NODES = [
+    {id:'n1', p:null, raw:'为什么 TCP 要三次握手？', blk:'', res:'', closed:false, x:10,  y:150},
+    {id:'n2', p:'n1', raw:'两次握手会出什么问题？', blk:'资料只说「防止历史连接」，可到底会收到什么样的包？', res:'', closed:false, x:270, y:16},
+    {id:'n3', p:'n2', raw:'那 ISN 为什么要随机？', blk:'', res:'ISN 可猜 → 旧连接的迟到包、伪造包会被当成新连接的合法数据', closed:true, x:530, y:16},
+    {id:'n4', p:'n1', raw:'四次挥手为什么比握手多一次？', blk:'', res:'', closed:false, x:270, y:250},
+    {id:'n5', p:'n4', raw:'为什么 ACK 和 FIN 不能合并？', blk:'', res:'', closed:false, x:530, y:250}
+  ];
+  var POOL = ['第一次握手丢了会怎样？','为什么握手不捎带数据？','半连接队列被撑爆怎么办？','TIME_WAIT 为什么是 2MSL 这么久？','SYN Flood 是怎么防的？'];
+  var seq = 0, sel = 'n3', tab = 'node', els = {};
+
+  function byId(id){ for(var i=0;i<NODES.length;i++) if(NODES[i].id===id) return NODES[i]; return null; }
+
+  /* --- 画气泡 --- */
+  function paint(){
+    for(var k in els){ if(els[k]) els[k].remove(); }
+    els = {};
+    NODES.forEach(function(n){
+      var d = document.createElement('div');
+      d.className = 'dn' + (n.id===sel?' sel':'') + (n.closed?' closed':'');
+      d.style.left = n.x + 'px'; d.style.top = n.y + 'px';
+      d.innerHTML = '<div class="acts">'
+        + '<button data-a="edit" title="改原话">✎</button>'
+        + '<button data-a="chat" title="丢进对话">💬</button>'
+        + '<button data-a="add" title="加子问题">＋</button>'
+        + '<button data-a="del" title="删这棵子树">✕</button>'
+        + '</div><div class="bub">' + (n.closed ? '<span class="tick">✓</span>' : '') + esc(n.raw) + '</div>';
+      d.addEventListener('mousedown', function(e){ onDown(e, n, d); });
+      canvas.appendChild(d);
+      els[n.id] = d;
+    });
+    var maxY = 0;
+    NODES.forEach(function(n){
+      if(els[n.id]) maxY = Math.max(maxY, n.y + els[n.id].offsetHeight);
+    });
+    canvas.style.height = Math.max(420, maxY + 90) + 'px';
+    drawEdges();
+  }
+  function esc(s){ return String(s).replace(/[&<>"]/g, function(c){
+    return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]; }); }
+
+  /* --- 连线：父节点右边 → 子节点左边 --- */
+  function drawEdges(){
+    var main = {};
+    var cur = byId(sel);
+    while(cur){ main[cur.id] = 1; cur = cur.p ? byId(cur.p) : null; }
+    var out = '';
+    NODES.forEach(function(n){
+      if(!n.p) return;
+      var a = els[n.p], b = els[n.id];
+      if(!a || !b) return;
+      var ax = a.offsetLeft + a.offsetWidth, ay = a.offsetTop + a.offsetHeight/2;
+      var bx = b.offsetLeft, by = b.offsetTop + b.offsetHeight/2;
+      var d = 'M'+ax+' '+ay+' C'+(ax+52)+' '+ay+','+(bx-52)+' '+by+','+bx+' '+by;
+      out += '<path d="'+d+'"'+(main[n.id]?' class="main"':'')+'></path>';
+    });
+    svg.innerHTML = out;
+  }
+
+  /* --- 拖动 / 点选 --- */
+  function onDown(e, n, d){
+    if(e.target.tagName === 'BUTTON'){ onAct(e.target.getAttribute('data-a'), n); return; }
+    var down = true, sx = e.clientX, sy = e.clientY, ox = n.x, oy = n.y, moved = 0;
+    d.classList.add('drag');
+    function mv(ev){
+      var dx = ev.clientX - sx, dy = ev.clientY - sy;
+      moved = Math.max(moved, Math.abs(dx)+Math.abs(dy));
+      if(moved < 3) return;
+      n.x = Math.max(0, ox + dx); n.y = Math.max(0, oy + dy);
+      d.style.left = n.x+'px'; d.style.top = n.y+'px';
+      drawEdges();
+    }
+    function up(){
+      document.removeEventListener('mousemove', mv);
+      document.removeEventListener('mouseup', up);
+      d.classList.remove('drag');
+      if(moved < 3) select(n.id);
+      paint();
+    }
+    document.addEventListener('mousemove', mv);
+    document.addEventListener('mouseup', up);
+    e.preventDefault();
+  }
+
+  /* --- 操作条 --- */
+  function onAct(a, n){
+    if(a === 'add'){
+      // 放在父节点右边，纵向躲开已有的兄弟，别叠在一起
+      var y = n.y + 40;
+      NODES.forEach(function(m){
+        if(m.p === n.id && els[m.id]) y = Math.max(y, m.y + els[m.id].offsetHeight + 16);
+      });
+      var kid = {id:'k'+(++seq), p:n.id, raw:POOL[seq % POOL.length], blk:'', res:'', closed:false,
+                 x:n.x + 260, y:y};
+      NODES.push(kid); sel = kid.id; tab = 'node';
+      paint();
+      if(els[kid.id]) els[kid.id].classList.add('enter');
+      toast('加了一个子问题 —— 也可以点气泡上的 ✎ 改掉它');
+    } else if(a === 'del'){
+      if(!confirm('删掉「'+n.raw+'」及其整棵子树？')) return;
+      var doomed = {};
+      (function mark(id){ doomed[id]=1; NODES.forEach(function(m){ if(m.p===id) mark(m.id); }); })(n.id);
+      NODES = NODES.filter(function(m){ return !doomed[m.id]; });
+      if(sel in doomed) sel = NODES.length ? NODES[0].id : null;
+      paint();
+    } else if(a === 'chat'){
+      tab = 'chat'; select(n.id);
+      toast('右栏切到「对话」，那句原话被丢进输入框');
+    } else if(a === 'edit'){
+      var box = els[n.id].querySelector('.bub');
+      var v = prompt('改这句原话：', n.raw);
+      if(v !== null && v.trim()){ n.raw = v.trim(); paint(); }
+    }
+    paintSide();
+  }
+
+  function select(id){ sel = id; paint(); paintSide(); }
+
+  /* --- 右栏 --- */
+  function paintSide(){
+    tabNode.className = tab==='node' ? 'on' : '';
+    tabChat.className = tab==='chat' ? 'on' : '';
+    nodeBox.style.display = tab==='node' ? '' : 'none';
+    chatBox.style.display = tab==='chat' ? '' : 'none';
+
+    if(tab === 'chat'){
+      chatBox.innerHTML = '<div class="chatline me"><span class="who">你（从气泡 💬 丢进来的）</span>'
+        + '<div class="bd">' + esc(sel?byId(sel).raw:'') + '</div></div>'
+        + '<div class="chatline ai"><span class="who">模型</span>'
+        + '<div class="bd">这条分支的关键在于「历史连接」到底长什么样：TCP 是老包在网络里滞留后，'
+        + '被重传到对端的场景下才需要第三次握手来确认。</div></div>'
+        + '<div class="chatline" style="color:var(--ink4)">…（演示里只放了两句）</div>';
+      return;
+    }
+    var n = sel ? byId(sel) : null;
+    if(!n){ nodeBox.innerHTML = '<div class="empty">点左边任意一个气泡，这里会显示它的原话、卡点和结论。</div>'; return; }
+    nodeBox.innerHTML =
+      '<div class="field"><div class="k">原话</div><div class="v">' + esc(n.raw) + '</div></div>'
+      + '<div class="field" style="margin-top:10px"><div class="k">卡点</div>'
+      + '<textarea id="d-blk" rows="3" placeholder="">' + esc(n.blk) + '</textarea></div>'
+      + '<div class="field" style="margin-top:10px"><div class="k">已明白</div>'
+      + '<textarea id="d-res" rows="3">' + esc(n.res) + '</textarea></div>'
+      + '<div class="row" style="margin-top:12px"><button id="d-close">'
+      + (n.closed ? '重新打开' : '收口') + '</button></div>';
+    var b = document.getElementById('d-blk'), r = document.getElementById('d-res');
+    b.addEventListener('input', function(){ n.blk = b.value; });
+    r.addEventListener('input', function(){ n.res = r.value; });
+    document.getElementById('d-close').addEventListener('click', function(){
+      n.closed = !n.closed;
+      if(n.closed && !n.res.trim()) n.res = '（这里写一句话结论 —— 演示里就留个空）';
+      paint(); paintSide();
+      toast(n.closed ? '收口了：这条分支打上 ✓' : '重新打开');
+    });
+  }
+
+  tabNode.addEventListener('click', function(){ tab='node'; paintSide(); });
+  tabChat.addEventListener('click', function(){ tab='chat'; paintSide(); });
+
+  /* --- 小提示 --- */
+  var tm = null;
+  function toast(msg){
+    var t = document.getElementById('d-toast');
+    if(!t){
+      t = document.createElement('div');
+      t.id = 'd-toast';
+      t.style.cssText = 'position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:99;'
+        + 'background:#000;color:#fff;font-family:var(--hand);font-size:13px;padding:8px 15px;'
+        + 'border-radius:9px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:80vw';
+      document.body.appendChild(t);
+    }
+    t.textContent = msg; t.style.opacity = '1';
+    clearTimeout(tm); tm = setTimeout(function(){ t.style.opacity = '0'; }, 2400);
+  }
+
+  paint(); paintSide();
+
+  /* 拖动过之后 <path> 要重画 */
+  window.addEventListener('resize', drawEdges);
+})();
+
+/* --- 复制安装命令 --- */
+(function(){
+  var b = document.getElementById('copy-cmd'), pre = document.getElementById('cmd');
+  if(!b) return;
+  b.addEventListener('click', function(){
+    var txt = pre.innerText;
+    var done = function(){ b.textContent = '已复制 ✓'; setTimeout(function(){ b.textContent = '复制'; }, 1600); };
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(txt).then(done, function(){ fallback(txt, done); });
+    } else fallback(txt, done);
+  });
+  function fallback(txt, done){
+    var ta = document.createElement('textarea');
+    ta.value = txt; document.body.appendChild(ta); ta.select();
+    try{ document.execCommand('copy'); done(); }catch(e){}
+    ta.remove();
+  }
+})();
+
+/* --- AI 梳理：把预置的文本一段段打出来 --- */
+(function(){
+  var btn = document.getElementById('ai-run');
+  var out = document.getElementById('ai-out');
+  var note = document.getElementById('ai-note');
+  var TEXT =
+    '1. **为什么 TCP 要三次握手**\n' +
+    '   - 更深的问题：两次握手会出什么问题\n' +
+    '2. **两次握手会出什么问题**\n' +
+    '   - 回答：服务端会为一个「历史连接」白建一条连接，而客户端早就不认它了\n' +
+    '   - 更深的问题：那 ISN 为什么要随机\n' +
+    '3. **那 ISN 为什么要随机**\n' +
+    '   - 回答：ISN 可猜的话，旧连接的迟到包、伪造包会被当成新连接的合法数据\n' +
+    '4. **四次挥手为什么比握手多一次**\n' +
+    '   - 更深的问题：为什么 ACK 和 FIN 不能合并\n' +
+    '5. **为什么 ACK 和 FIN 不能合并**\n' +
+    '   - 回答：被动关闭方收到 FIN 后，应用层可能还有数据没发完，不能立刻回 FIN\n';
+  var timer = null;
+
+  btn.addEventListener('click', function(){
+    clearInterval(timer);
+    out.textContent = '';
+    note.textContent = '正在流式输出…（真的 qp 走的是你自己的模型）';
+    btn.disabled = true; btn.style.opacity = '.5';
+    var i = 0;
+    timer = setInterval(function(){
+      i = Math.min(TEXT.length, i + 4);
+      out.textContent = TEXT.slice(0, i);
+      out.scrollTop = out.scrollHeight;
+      if(i >= TEXT.length){
+        clearInterval(timer);
+        btn.disabled = false; btn.style.opacity = '';
+        note.textContent = '出完了 —— 上面这个框可以直接改，确认后再保存 md';
+      }
+    }, 16);
+  });
+})();
+
+/* --- 滚动出场 --- */
+(function(){
+  var els = document.querySelectorAll('.rv');
+  if(!('IntersectionObserver' in window)){ els.forEach(function(e){ e.classList.add('in'); }); return; }
+  var io = new IntersectionObserver(function(list){
+    list.forEach(function(x){ if(x.isIntersecting){ x.target.classList.add('in'); io.unobserve(x.target); } });
+  }, {rootMargin:'0px 0px -8% 0px', threshold:.06});
+  els.forEach(function(e, i){ e.style.transitionDelay = Math.min(i%4*40, 120) + 'ms'; io.observe(e); });
+})();
+</script>
+</body>
+</html>

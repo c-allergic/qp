@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>qp · 追问树 — 把「我为什么会问这个问题」记成一棵树</title>
-<meta name="description" content="qp 是一个追问链路记录器：读论文、啃新东西时把每次追问记成树上的一块气泡，根节点永远钉着你最初想问什么。单文件 Python + 本地 Web UI，零第三方依赖。">
+<meta name="description" content="qp 是一个追问链路记录器：读论文或学习新内容时，把每一次追问记成树上的一个节点，根节点始终保留你最初的问题。">
 <meta name="theme-color" content="#ffffff">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23000'/><text x='16' y='23' font-size='19' text-anchor='middle' fill='%23fff' font-family='cursive'>q</text></svg>">
 <style>
@@ -15,13 +15,18 @@
   --hand:"Comic Sans MS","Comic Sans","Chalkboard SE","Marker Felt",cursive;
   --sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
   --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"JetBrains Mono",monospace;
-  --w:1080px;
+  --w:1160px;
 }
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
 body{
-  margin:0;background:var(--paper);color:var(--ink);
+  margin:0;color:var(--ink);
   font-family:var(--sans);font-size:16px;line-height:1.75;
+  /* 全局背景：应用画布的那张网格纸 */
+  background-color:var(--paper);
+  background-image:linear-gradient(var(--line) 1px,transparent 1px),
+                   linear-gradient(90deg,var(--line) 1px,transparent 1px);
+  background-size:24px 24px;
   -webkit-font-smoothing:antialiased;
 }
 a{color:var(--ink);text-decoration:none}
@@ -46,16 +51,8 @@ header .sp{flex:1}
 .btn.solid{background:var(--ink);color:var(--paper)}
 .btn.solid:hover{background:var(--paper);color:var(--ink)}
 
-/* ---------- 网格底：应用画布的那张纸 ---------- */
-.gridbg{
-  background-color:var(--paper);
-  background-image:linear-gradient(var(--line) 1px,transparent 1px),
-                   linear-gradient(90deg,var(--line) 1px,transparent 1px);
-  background-size:24px 24px;
-}
-
 /* ---------- Hero ---------- */
-.hero{border-bottom:1.5px solid var(--ink);padding:88px 0 76px}
+.hero{position:relative;padding:88px 0 76px}
 .hero h1{
   font-family:var(--hand);font-size:clamp(30px,5.2vw,58px);line-height:1.22;
   margin:0 0 22px;letter-spacing:-.5px;max-width:15ch;
@@ -82,7 +79,12 @@ header .sp{flex:1}
 .snippet pre .p{color:var(--ink)}
 
 /* ---------- 通用 section ---------- */
-section{border-bottom:1.5px solid var(--ink);padding:74px 0}
+section{position:relative;padding:74px 0}
+/* 板块之间用横线隔开：跟内容同宽，不铺满整屏 */
+.hero::after,section::after{
+  content:"";position:absolute;left:50%;bottom:0;transform:translateX(-50%);
+  width:min(var(--w),calc(100% - 48px));height:1.5px;background:var(--ink);
+}
 .eyebrow{
   font-family:var(--hand);font-size:12px;color:var(--ink3);letter-spacing:.04em;
   display:flex;align-items:center;gap:8px;margin:0 0 14px;
@@ -219,6 +221,7 @@ p{color:var(--ink2);margin:0 0 14px}
 
 /* ---------- 安装 ---------- */
 .cols{display:grid;grid-template-columns:1fr 1fr;gap:34px;align-items:start;margin-top:10px}
+.cols>*{min-width:0}   /* 否则表格的 min-content 会把栅格撑破，窄屏横向溢出 */
 table.req{width:100%;border-collapse:collapse;font-size:14.5px}
 table.req th,table.req td{border-bottom:1px solid var(--line);padding:9px 6px;text-align:left;vertical-align:top}
 table.req th{font-family:var(--hand);font-weight:400;color:var(--ink3);width:96px}
@@ -262,14 +265,14 @@ footer a:hover{background:var(--hl)}
 </header>
 
 <!-- ============ HERO ============ -->
-<div class="hero gridbg">
+<div class="hero">
   <div class="wrap">
     <h1 class="rv">把「<em>我为什么会问这个问题</em>」记成一棵树</h1>
     <p class="lead rv">
-      读论文、啃新东西的时候，你一路追问下去，等搞明白回头一看 —— <b>主线没了</b>。<br>
-      <code>qp</code> 把每次追问记成树上的一块气泡：每个气泡是你<b>当时的那句原话</b>，
-      根节点永远钉着你最初想问什么。它不是待办清单，也不是思维导图工具，
-      而是一个「提问过程」的记录器。
+      读论文、查资料的时候，一个问题常常牵出下一个问题；等一路弄清楚，
+      最初想问什么已经记不清了。<br>
+      <code>qp</code> 把这条追问过程记成一棵树：每个节点是你当时的问题原话，
+      根节点始终保留最初的那个问题。
     </p>
     <div class="cta rv">
       <a class="btn solid" href="#demo">先玩玩看 ↓</a>
@@ -281,7 +284,7 @@ footer a:hover{background:var(--hl)}
         <span>装起来大概这样 ↓</span><span class="sp"></span>
         <button class="btn" id="copy-cmd" style="padding:2px 9px;font-size:12px">复制</button>
       </div>
-<pre id="cmd"><span class="c"># 只要 Python 3，没有任何第三方依赖</span>
+<pre id="cmd"><span class="c"># 取回代码，加一条全局命令</span>
 git clone https://github.com/c-allergic/qp.git ~/apps/qp
 ln -sf ~/apps/qp/qp.py /opt/homebrew/bin/qp   <span class="c"># Intel Mac 用 /usr/local/bin</span>
 
@@ -296,18 +299,17 @@ qp ui                                          <span class="c"># 打开图形界
 <section>
   <div class="wrap">
     <p class="eyebrow rv">为什么做这个</p>
-    <h2 class="rv">普通的笔记，把最值钱的那一层丢掉了</h2>
+    <h2 class="rv">普通笔记留下了结论，丢掉了过程</h2>
     <p class="quote rv">
       为了搞懂 A，你去查 B；为了 B，又得先弄清楚 C……等你终于明白 C，<br>已经想不起来自己为什么要出发。
     </p>
     <p class="rv" style="max-width:64ch">
-      笔记通常只留下<b>结论</b>：当时卡在哪、为什么会问到这里，这一层不见了。
-      而那恰恰是下次复习、或者同一个知识点再卡住时最值钱的东西。
+      笔记通常只保留结论，「当时卡在哪个说法、为什么会问到这里」这一层没有被记下来。
+      但在复习、或者同一个知识点再次卡住的时候，这一层往往更有用。
     </p>
     <p class="rv" style="max-width:64ch">
-      所以 qp 做了三个很具体的取舍 —— 根节点永远是你最初的问题；
-      每个子节点记的不是「子议题」，而是「<b>父节点里哪个说法我没懂</b>」；
-      一条分支搞懂了就<b>收口</b>，写下卡点和结论。
+      qp 的做法是：根节点保留最初的问题；每个子节点记录的不是「子议题」，
+      而是「<b>父节点里哪个说法我没弄懂</b>」；一条分支想通后可以<b>收口</b>，写下卡点和结论。
     </p>
   </div>
 </section>
@@ -316,10 +318,10 @@ qp ui                                          <span class="c"># 打开图形界
 <section id="demo">
   <div class="wrap">
     <p class="eyebrow rv">主要功能</p>
-    <h2 class="rv">先玩玩看 —— 下面这个是能点的</h2>
+    <h2 class="rv">下面的窗口可以直接操作</h2>
     <p class="rv" style="max-width:62ch">
-      一个迷你版：把光标移到气泡上会浮出操作条，点 <b>＋</b> 长出子问题，
-      点气泡看右栏，点「收口」把这条分支打上 ✓。气泡还能拖着走，连线会跟着变。
+      点气泡上的 <b>＋</b> 长出子问题，点气泡在右栏写下卡点和结论，
+      拖动气泡可以自由排布，连线会跟着走。
     </p>
 
     <div class="demo rv" id="demo-win">
@@ -358,19 +360,13 @@ qp ui                                          <span class="c"># 打开图形界
 </section>
 
 <!-- ============ AI 梳理 ============ -->
-<section class="gridbg">
+<section>
   <div class="wrap">
     <p class="eyebrow rv">可选 · 需要自己配一个模型</p>
-    <h2 class="rv">AI 梳理：把你想到过的问题，摊平了给你看</h2>
+    <h2 class="rv">AI 梳理：把你想到过的问题列出来</h2>
     <p class="rv" style="max-width:64ch">
-      等整棵树追得差不多了，让它读一遍，然后回答两件事：
-      <b>你在这篇文章里想到了哪些问题</b>，以及<b>每个问题后面跟着什么</b> ——
-      相关的回答，或者由它引出的更深的追问。
-    </p>
-    <p class="rv" style="max-width:64ch">
-      它刻意不套「起点 / 转折 / 卡点 / 最终框架」那种模板，也不给你的思考下
-      「解决了 / 没解决」的结论 —— 很多困惑本来就没有干净的收尾。
-      梳理结果会铺在一个<b>可编辑</b>的框里，你改完再自己决定存不存。
+      读完整棵树之后，它列出你提到过哪些问题，以及每个问题后面跟着什么回答或更深的追问。
+      结果放在一个<b>可编辑</b>的框里，你可以修改之后再决定要不要保存。
     </p>
 
     <div class="aidemo rv">
@@ -381,7 +377,7 @@ qp ui                                          <span class="c"># 打开图形界
         <span class="note">结果是可编辑的 →  改完再「保存 md」</span>
       </div>
       <div id="ai-out" contenteditable="true" spellcheck="false"
-           data-ph="（点上面的按钮，梳理结果会流式出现在这里 —— 而且可以直接改）"></div>
+           data-ph="（点上面的按钮，梳理结果会出现在这里，并且可以直接修改）"></div>
     </div>
   </div>
 </section>
@@ -393,41 +389,36 @@ qp ui                                          <span class="c"># 打开图形界
     <h2 class="rv">功能一览</h2>
     <div class="cards">
       <div class="card rv">
-        <h3><span class="ic">＋</span>一层层追问</h3>
-        <p>点气泡就地变成输入框，回车长出一个子节点。任何节点都能加子问题（不限于叶子），
-           所以树不会退化成一条链。</p>
+        <h3><span class="ic">＋</span>逐层追问</h3>
+        <p>任意节点都能继续追问，树不会只剩一条链。</p>
       </div>
       <div class="card rv">
-        <h3><span class="ic">✥</span>自由布局</h3>
-        <p>按住气泡拖动，连线实时跟着变，落点会被记住。摆乱了点「重置布局」一键归位。</p>
+        <h3><span class="ic">✥</span>自由排布</h3>
+        <p>拖动气泡摆放位置，连线随之更新。</p>
       </div>
       <div class="card rv">
         <h3><span class="ic">✓</span>收口</h3>
-        <p>记下「卡点」（父节点里哪个说法没懂）和「已明白」（一句话结论）。
-           收口的分支打 ✓，一眼看出哪些路已经走通。</p>
+        <p>想通一条分支后写下卡点和结论，在树上标为已收口。</p>
       </div>
       <div class="card rv">
         <h3><span class="ic">¶</span>笔记</h3>
-        <p>树 = 还没想通、要追下去的东西；笔记 = 已经想通、要成篇写下来的东西。
-           两者并列，markdown + 预览，停手 0.7 秒自动保存。</p>
+        <p>和树并列的一篇 markdown 文档，带预览、自动保存。</p>
       </div>
       <div class="card rv">
         <h3><span class="ic">▧</span>图片</h3>
-        <p><b>⌘V</b> 直接粘贴截图，变成一个图片节点；按内容哈希去重，同一张图只存一份。</p>
+        <p>把截图直接粘进树里，作为一个节点挂在相应位置。</p>
       </div>
       <div class="card rv">
         <h3><span class="ic">💬</span>对话</h3>
-        <p>右栏多轮 AI 聊天，流式输出、<b>随时可停</b> —— 按停止会同时断掉上游，不继续烧额度。</p>
+        <p>就当前这个节点，随时向模型追问。</p>
       </div>
       <div class="card rv">
         <h3><span class="ic">↧</span>导出与分享</h3>
-        <p>导出 markdown；<code>qp render</code> 写出一份自包含的只读快照，
-           对方双击就能看你那棵完整的树，不需要装任何东西。</p>
+        <p>导出 markdown，或生成一份对方直接就能打开的只读快照。</p>
       </div>
       <div class="card rv">
-        <h3><span class="ic">⌘</span>双击就开</h3>
-        <p><code>qp install-app</code> 生成可双击的 <code>qp.app</code>；
-           <code>qp home</code> 是个项目管理器，把本机所有带 qp 的项目列出来。</p>
+        <h3><span class="ic">⌘</span>双击启动</h3>
+        <p>生成一个可双击的应用图标，并管理本机所有 qp 项目。</p>
       </div>
     </div>
   </div>
@@ -437,26 +428,23 @@ qp ui                                          <span class="c"># 打开图形界
 <section id="install">
   <div class="wrap">
     <p class="eyebrow rv">安装</p>
-    <h2 class="rv">三个文件，一条软链</h2>
+    <h2 class="rv">几步就能装好</h2>
     <div class="cols">
       <div class="rv">
         <h3>环境需求</h3>
         <table class="req">
-          <tr><th>系统</th><td><b>macOS</b>。原生窗口、双击 app、项目管理器的文件夹选择都依赖 macOS 自带能力；
-              命令行和浏览器界面本身跨平台，但没在 Windows / Linux 上验证过。</td></tr>
-          <tr><th>Python</th><td><b>3.8+</b>，系统自带的就够，<b>零第三方依赖</b>。</td></tr>
-          <tr><th>浏览器</th><td>任意（推荐 Chrome）。装了 pywebview 就用系统原生窗口，不依赖 Chrome。</td></tr>
-          <tr><th>模型</th><td>选填。「对话」和「AI 梳理」需要一个 OpenAI 兼容端点，
-              不配也能用其余全部功能 —— 完全不联网。</td></tr>
+          <tr><th>系统</th><td>macOS</td></tr>
+          <tr><th>Python</th><td>3.8 或更高</td></tr>
+          <tr><th>浏览器</th><td>任意，推荐 Chrome</td></tr>
+          <tr><th>模型端点</th><td>可选，仅「对话」和「AI 梳理」需要</td></tr>
         </table>
       </div>
       <div class="rv">
-        <h3>装</h3>
+        <h3>安装</h3>
         <ol class="steps">
-          <li>把 <code>qp.py</code> <code>qp-ui.html</code> <code>qp-home.html</code>
-              放到同一个目录（<b>必须同目录</b>）。</li>
-          <li>加一条软链，让它变成全局命令。</li>
-          <li>在你要读论文的那个目录里 <code>qp init</code>。</li>
+          <li>把仓库克隆到本地，让其中的脚本与页面放在同一个目录。</li>
+          <li>加一条软链，把它变成全局命令。</li>
+          <li>在要记录的目录里执行 <code>qp init</code>。</li>
         </ol>
         <div class="snippet" style="margin-top:6px">
 <pre>git clone https://github.com/c-allergic/qp.git ~/apps/qp
@@ -467,9 +455,8 @@ qp init
 qp ui</pre>
         </div>
         <p style="margin-top:16px;font-size:14.5px">
-          你写的东西全在<b>运行 qp 的那个目录</b>下的 <code>.qp/</code> 里（隐藏目录，跟 <code>.git</code> 一个道理）——
-          纯 JSON + 按内容哈希命名的图片，可以直接 <code>cat</code>、手工改、<code>git diff</code>。
-          没有账号、没有云同步、没有遥测。
+          所有内容保存在运行 qp 的那个目录下的 <code>.qp/</code> 里，
+          没有账号、没有云同步、也没有遥测。
         </p>
       </div>
     </div>
@@ -720,7 +707,7 @@ qp ui</pre>
   btn.addEventListener('click', function(){
     clearInterval(timer);
     out.textContent = '';
-    note.textContent = '正在流式输出…（真的 qp 走的是你自己的模型）';
+    note.textContent = '正在输出…（真实版本使用你自己配置的模型）';
     btn.disabled = true; btn.style.opacity = '.5';
     var i = 0;
     timer = setInterval(function(){
@@ -730,7 +717,7 @@ qp ui</pre>
       if(i >= TEXT.length){
         clearInterval(timer);
         btn.disabled = false; btn.style.opacity = '';
-        note.textContent = '出完了 —— 上面这个框可以直接改，确认后再保存 md';
+        note.textContent = '输出完成 —— 上面的框可以直接修改，确认后再保存 md';
       }
     }, 16);
   });

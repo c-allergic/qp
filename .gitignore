@@ -1,0 +1,9 @@
+# 用户数据：qp 把内容写在「运行它的那个目录」下的 .qp/ 里，不属于本仓库
+.qp/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# macOS
+.DS_Store

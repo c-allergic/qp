@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>qp</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='4' y='4' width='24' height='19' rx='8' fill='none' stroke='%23000' stroke-width='3'/%3E%3Cpath d='M11 23 L11 29 L18 23' fill='none' stroke='%23000' stroke-width='3'/%3E%3C/svg%3E">
+<style>
+:root{--ink:#000;--ink2:#333;--ink3:#666;--ink4:#aaa;--paper:#fff;--paper2:#fafafa;--line:#e4e4e4}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font-family:-apple-system,"Helvetica Neue","PingFang SC",sans-serif}
+header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:8px;
+  padding:14px 22px;background:var(--paper);border-bottom:1.5px solid var(--ink)}
+header .logo{font-size:15px;font-weight:600;letter-spacing:.5px}
+header .sp{flex:1}
+input{font:inherit;font-size:13px;color:var(--ink);background:var(--paper);
+  border:1.5px solid var(--ink);border-radius:8px;padding:6px 9px}
+input:focus{outline:none;background:var(--paper2)}
+button{font:inherit;font-size:12px;cursor:pointer;background:var(--paper);color:var(--ink);
+  border:1.5px solid var(--ink);border-radius:8px;padding:5px 12px;white-space:nowrap}
+button:hover{background:var(--ink);color:var(--paper)}
+main{max-width:900px;margin:0 auto;padding:24px 22px 70px}
+h2{font-size:12px;font-weight:normal;color:var(--ink3);letter-spacing:1px;margin:26px 0 10px}
+h2:first-child{margin-top:0}
+.row{display:flex;align-items:center;gap:12px;padding:12px 14px;margin-bottom:8px;
+  border:1.5px solid var(--line);border-radius:10px;cursor:pointer}
+.row:hover{border-color:var(--ink)}
+.row.first{cursor:default}
+.row.first:hover{border-color:var(--line)}
+.mid{flex:1;min-width:0}
+.nm{font-size:14px}
+.pt{font-size:11.5px;color:var(--ink3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pre{font-size:12px;color:var(--ink2);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.n{font-size:11.5px;color:var(--ink3);white-space:nowrap}
+.empty{color:var(--ink4);font-size:13px;padding:8px 2px}
+#toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--ink);
+  color:var(--paper);font-size:12px;border-radius:8px;padding:7px 14px;opacity:0;
+  transition:opacity .18s;pointer-events:none}
+#toast.on{opacity:1}
+</style>
+</head>
+<body>
+<header>
+  <span class="logo">qp</span>
+  <input id="path" placeholder="把路径粘进来" style="width:330px">
+  <button id="browse">选择文件夹…</button>
+  <button id="init">在此初始化</button>
+  <span class="sp"></span>
+  <button id="refresh">刷新</button>
+  <button id="quit">退出</button>
+</header>
+<main>
+  <h2>有 qp 的项目</h2>
+  <div id="have"></div>
+</main>
+<div id="toast"></div>
+<script>
+function toast(m){
+  var t = document.getElementById('toast');
+  t.textContent = m; t.classList.add('on');
+  clearTimeout(t._h); t._h = setTimeout(function(){ t.classList.remove('on'); }, 2200);
+}
+function esc(s){
+  return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];
+  });
+}
+function post(url, body){
+  return fetch(url, {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body || {})})
+    .then(function(r){ return r.json(); })
+    .then(function(d){ if (d.error) throw new Error(d.error); return d; });
+}
+function load(){
+  fetch('api/projects').then(function(r){ return r.json(); }).then(function(d){
+    var have = document.getElementById('have');
+    have.innerHTML = '';
+    if (!d.projects.length) have.innerHTML = '<div class="empty">还没有</div>';
+    d.projects.forEach(function(p){
+      var row = makeRow(
+        {name:p.name, path:p.path, pre:p.pre, n:p.trees + ' 棵 / ' + p.nodes + ' 节点'},
+        {label:'打开', fn:function(){ go(p.path); }});
+      have.appendChild(row);
+    });
+  }).catch(function(){ toast('读取失败'); });
+}
+function makeRow(item, act){
+  var d = document.createElement('div');
+  d.className = 'row';
+  var mid = document.createElement('div');
+  mid.className = 'mid';
+  var h = '<div class="nm">' + esc(item.name) + '</div>'
+        + '<div class="pt">' + esc(item.short || item.path) + '</div>';
+  if (item.pre) h += '<div class="pre">' + esc(item.pre) + '</div>';
+  mid.innerHTML = h;
+  d.appendChild(mid);
+  if (item.n){ var n = document.createElement('div'); n.className = 'n'; n.textContent = item.n; d.appendChild(n); }
+  var b = document.createElement('button');
+  b.textContent = act.label; b.onclick = act.fn;
+  d.appendChild(b);
+  d.onclick = function(e){ if (e.target !== b) act.fn(); };
+  return d;
+}
+/* create=true：目录里有 qp 就直接进，没有就地建好再进 */
+function go(path, create){
+  post('api/open', {path:path, create:!!create})
+    .then(function(d){ location.href = d.url; })
+    .catch(function(e){ toast(e.message || '打不开'); });
+}
+document.getElementById('refresh').onclick = load;
+document.getElementById('init').onclick = function(){
+  var v = document.getElementById('path').value.trim();
+  if (!v){ toast('填一个路径'); return; }
+  go(v, true);
+};
+document.getElementById('browse').onclick = function(){
+  post('api/browse').then(function(d){
+    if (!d.path) return;                 // 用户取消了
+    document.getElementById('path').value = d.path;
+    go(d.path, true);
+  }).catch(function(e){ toast(e.message || '打不开选择框'); });
+};
+document.getElementById('quit').onclick = function(){
+  fetch('api/quit', {method:'POST'}).catch(function(){}).then(function(){
+    document.body.innerHTML = '<main><div class="empty">qp 已退出</div></main>';
+  });
+};
+load();
+</script>
+</body>
+</html>

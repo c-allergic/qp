@@ -1,0 +1,1897 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>/*__QP_TITLE__*/qp - 追问树</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='4' y='4' width='24' height='19' rx='8' fill='none' stroke='%23000' stroke-width='3'/%3E%3Cpath d='M11 23 L11 29 L18 23' fill='none' stroke='%23000' stroke-width='3'/%3E%3C/svg%3E">
+<style>
+:root{
+  --ink:#000; --ink2:#333; --ink3:#666; --ink4:#999;
+  --paper:#fff; --paper2:#fafafa; --paper3:#f2f2f2; --line:#e4e4e4;
+  --sidew:320px;                 /* 右栏宽度，拖左边缘改（JS 里写这个变量） */
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{
+  font-family:"Comic Sans MS","Comic Sans","Chalkboard SE","Marker Felt",cursive;
+  color:var(--ink); background:var(--paper); overflow:hidden;
+}
+button{font-family:inherit;cursor:pointer;background:var(--paper);color:var(--ink);
+  border:1.5px solid var(--ink);border-radius:8px;padding:3px 10px;font-size:12px}
+button:hover{background:var(--ink);color:var(--paper)}
+button.primary{background:var(--ink);color:var(--paper)}
+button.primary:hover{background:var(--paper);color:var(--ink)}
+textarea,input{font-family:inherit;font-size:13px;color:var(--ink);background:var(--paper);
+  border:1.5px solid var(--ink);border-radius:8px;padding:6px 8px;width:100%;resize:none}
+textarea:focus,input:focus{outline:none;background:var(--paper2)}
+
+#top{position:fixed;inset:0 0 auto 0;height:44px;display:flex;align-items:center;gap:8px;
+  padding:0 12px;background:var(--paper);border-bottom:1.5px solid var(--ink);z-index:20}
+#top .logo{font-size:14px;white-space:nowrap}
+#tabs{display:flex;gap:6px;overflow-x:auto;flex:1}
+#tabs .tab{max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#tabs .tab.on{background:var(--ink);color:var(--paper)}
+#tabs .tab.note{border-style:dashed;color:var(--ink2)}
+#tabs .tab.note.on{border-style:solid;color:var(--paper)}
+
+#stage{position:fixed;top:44px;bottom:0;right:var(--sidew);left:0;overflow:hidden;cursor:grab;
+  background-color:var(--paper);
+  background-image:linear-gradient(var(--line) 1px,transparent 1px),
+                   linear-gradient(90deg,var(--line) 1px,transparent 1px);
+  background-size:24px 24px}
+#stage.grabbing{cursor:grabbing}
+#canvas{position:absolute;left:0;top:0;transform-origin:0 0}
+#edges{position:absolute;left:0;top:0;width:1px;height:1px;overflow:visible;pointer-events:none}
+/* 所有连线同粗，只用深浅区分「你来时的那条路」—— 免得某根枝条看起来莫名更粗 */
+#edges path{fill:none;stroke:#c6c6c6;stroke-width:1.5}
+#edges path.main{stroke:var(--ink);stroke-width:1.5}
+
+/* 悬浮操作条位于 .node 的 padding 区域内，所以光标移上去不会掉出 hover */
+/* z-index 只在画布内部生效；#stage 本身是 fixed 层，永远压不到顶部栏与右侧栏 */
+.node{position:absolute;width:196px;padding-top:30px;z-index:1}
+.node.dragging{z-index:5}
+.node.dragging .bubble{cursor:grabbing}
+.acts{position:absolute;top:0;left:0;right:0;height:26px;display:flex;gap:5px;
+  justify-content:flex-end;opacity:0;pointer-events:none;transition:opacity .08s}
+.node:hover .acts{opacity:1;pointer-events:auto}
+.acts button{width:26px;height:26px;padding:0;border-radius:8px;font-size:13px;line-height:1;
+  display:flex;align-items:center;justify-content:center}
+.bubble{position:relative;background:var(--paper);border:2px solid var(--ink);
+  border-radius:20px;padding:9px 12px;font-size:13px;line-height:1.35;
+  overflow-wrap:anywhere;cursor:pointer}
+.bubble .txt{overflow-wrap:break-word}
+.node:hover .bubble{background:var(--paper2)}
+.node.focus .bubble{border-width:3px;box-shadow:0 0 0 4px var(--line)}
+.node.closed .bubble{border-color:var(--ink3);background:var(--paper3);border-style:dashed}
+.badge{position:absolute;right:-7px;bottom:-7px;width:18px;height:18px;border-radius:50%;
+  background:var(--ink3);color:var(--paper);font-size:11px;line-height:18px;text-align:center}
+.blk{position:absolute;font-size:11px;color:var(--ink2);background:var(--paper);
+  border:1px dashed var(--ink3);border-radius:6px;padding:1px 6px;white-space:nowrap;
+  max-width:220px;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+.node.draft .bubble{cursor:text;border-style:dashed;background:var(--paper2)}
+.bubble textarea{border:0;background:transparent;padding:0;font-size:13px;line-height:1.35;
+  min-height:54px;resize:none;border-radius:0}
+.bubble textarea:focus{background:transparent}
+
+#side{position:fixed;top:44px;bottom:0;right:0;width:var(--sidew);border-left:1.5px solid var(--ink);
+  background:var(--paper);z-index:15;display:flex;flex-direction:column}
+/* 拖这条边改右栏宽度：宽度存在 --sidew 上，画布/笔记面板/离线条都跟着走 */
+#side-grip{position:absolute;left:-4px;top:0;bottom:0;width:9px;cursor:col-resize;z-index:2;
+  user-select:none;-webkit-user-select:none}
+#side-grip::after{content:'';position:absolute;left:4px;top:0;bottom:0;width:1px;
+  background:var(--ink4);opacity:0;transition:opacity .1s}
+#side-grip:hover::after,#side-grip.on::after{opacity:1}
+/* 右栏两个页签：节点（默认）/ 对话。就是点击切换，没有别的入口。 */
+.sidetabs{display:flex;gap:6px;padding:10px 12px 0;flex:none}
+.sidetabs button{flex:1;padding:4px 8px;font-size:12px;border-radius:8px}
+.sidetabs button.on{background:var(--ink);color:var(--paper)}
+#side-node{flex:1;min-height:0;overflow-y:auto;padding:12px}
+#side-chat{flex:1;min-height:0;display:none;flex-direction:column}
+#side.chat #side-node{display:none}
+#side.chat #side-chat{display:flex}
+#side h2{font-size:12px;margin:0 0 8px;font-weight:normal;color:var(--ink3)}
+.crumb{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-bottom:16px}
+.crumb .c{font-size:11px;border:1px solid var(--ink3);border-radius:10px;padding:1px 7px;
+  max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+.crumb .c:hover{background:var(--paper3)}
+.crumb .c.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.crumb .sep{color:var(--ink4);font-size:11px}
+.field{margin-bottom:12px}
+.field .k{font-size:11px;color:var(--ink3);margin-bottom:4px}
+.field .v{font-size:12.5px;line-height:1.5;overflow-wrap:break-word}
+.field .v.empty{color:var(--ink4)}
+#side .row{display:flex;gap:6px;flex-wrap:wrap;margin-top:14px}
+
+#hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  color:var(--ink4);font-size:14px;pointer-events:none;text-align:center;line-height:1.8}
+#toast{position:fixed;left:50%;top:56px;transform:translateX(-50%);background:var(--ink);
+  color:var(--paper);font-size:12px;border-radius:8px;padding:6px 12px;opacity:0;
+  transition:opacity .18s;pointer-events:none;z-index:60}
+#toast.on{opacity:1}
+
+#offline{position:fixed;left:0;right:var(--sidew);bottom:0;height:36px;background:var(--ink);
+  color:var(--paper);font-size:12px;padding:0 14px;display:none;align-items:center;gap:12px;z-index:30}
+#offline.on{display:flex}
+#offline span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#offline button{background:var(--paper);color:var(--ink);border-color:var(--paper);flex:0 0 auto}
+#offline button:hover{background:transparent;color:var(--paper)}
+body.offline #stage,body.offline #side{bottom:36px}
+
+/* 折叠：只有真的被截断的节点才给「展开」，点开就地摊平，再点「收起」折回。
+   不用悬浮卡片 —— 那样内容没被截断的节点也会弹一张，很吵。 */
+.bubble .txt.clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.fold{display:none;position:absolute;right:6px;bottom:-9px;font-size:10px;line-height:15px;
+  padding:0 5px;color:var(--ink3);background:var(--paper);border:1px solid var(--line);
+  border-radius:7px;cursor:pointer}
+.bubble.more .fold,.bubble.wide .fold{display:block}
+.fold:hover{color:var(--paper);background:var(--ink);border-color:var(--ink)}
+
+/* 图片节点：就是普通节点，只是宽一点、拿图当主体 */
+.node.imgnode{width:268px}
+.bubble .pic{display:block;width:100%;max-height:280px;object-fit:contain;
+  background:var(--paper3);border:1.5px solid var(--ink);border-radius:10px;cursor:zoom-in}
+.bubble .cap{margin-top:7px;font-size:12px;color:var(--ink2);white-space:pre-wrap;overflow-wrap:anywhere}
+.bubble .cap.ph{color:var(--ink4)}
+
+/* 「把这张图连到谁」提示条 */
+#linkbar{position:absolute;left:50%;top:12px;transform:translateX(-50%);z-index:9;display:none;
+  align-items:center;gap:10px;background:var(--ink);color:var(--paper);font-size:12px;
+  border-radius:10px;padding:6px 12px;box-shadow:0 6px 20px rgba(0,0,0,.2);white-space:nowrap}
+#linkbar.on{display:flex}
+#linkbar button{background:var(--paper);color:var(--ink);border-color:var(--paper);padding:2px 9px}
+#linkbar button:hover{background:transparent;color:var(--paper)}
+body.linking #stage{cursor:crosshair}
+.node.linking .bubble{border-style:dashed;box-shadow:0 0 0 4px var(--line)}
+
+/* 笔记面板：盖住画布区，右侧栏留着放元信息 */
+#notepane{position:fixed;top:44px;bottom:0;right:var(--sidew);left:0;display:none;flex-direction:column;
+  background:var(--paper);z-index:14}
+#notepane.on{display:flex}
+.np-head{display:flex;gap:6px;align-items:center;padding:10px 14px;
+  border-bottom:1.5px solid var(--line)}
+.np-head input{flex:1;font-size:14px;border-color:transparent;background:transparent}
+.np-head input:focus{background:var(--paper2);border-color:var(--line)}
+.np-body{flex:1;min-height:0;padding:14px}
+#np-md,#np-view{margin:0;width:100%;height:100%;border:1.5px solid var(--line);
+  border-radius:10px;padding:14px 16px;font-size:13.5px;line-height:1.65;overflow:auto;
+  background:var(--paper)}
+#np-md{resize:none;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+#np-view{display:none}
+#notepane.preview #np-md{display:none}
+#notepane.preview #np-view{display:block}
+.md h1,.md h2,.md h3{margin:16px 0 8px;line-height:1.3}
+.md h1{font-size:20px}
+.md h2{font-size:17px}
+.md h3{font-size:15px}
+.md p{margin:9px 0}
+.md ul,.md ol{margin:9px 0;padding-left:22px}
+.md li{margin:3px 0}
+.md code{background:var(--paper3);border-radius:4px;padding:1px 5px;font-size:12.5px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.md pre{background:var(--paper3);border-radius:8px;padding:10px 12px;overflow:auto}
+.md pre code{background:none;padding:0}
+.md blockquote{margin:9px 0;padding:2px 12px;border-left:3px solid var(--line);color:var(--ink2)}
+.md hr{border:0;border-top:1px solid var(--line);margin:16px 0}
+.md img{max-width:100%;border-radius:8px;border:1px solid var(--line)}
+.md .ph{color:var(--ink4)}
+
+/* 节点正文（气泡里的 .txt、右侧栏的 .v）共用同一套 markdown 渲染，
+   只是排版按小尺寸收紧：段落不额外留白，列表缩进小一点 */
+.txt.md p,.v.md p{margin:0}
+.txt.md ul,.txt.md ol,.v.md ul,.v.md ol{margin:2px 0;padding-left:17px}
+.txt.md li,.v.md li{margin:0}
+.txt.md h1,.txt.md h2,.txt.md h3,.txt.md h4,
+.v.md h1,.v.md h2,.v.md h3,.v.md h4{font-size:13px;margin:3px 0}
+.txt.md pre,.v.md pre{margin:3px 0;padding:5px 7px}
+.txt.md pre code,.v.md pre code{background:none;padding:0;font-size:12px}
+.txt.md blockquote,.v.md blockquote{margin:3px 0;padding:1px 8px}
+.txt.md code,.v.md code{font-size:12px;padding:0 4px}
+.txt.md hr,.v.md hr{margin:6px 0}
+.txt.md img,.v.md img{max-width:100%}
+
+/* 缩放滑块 */
+#zoomctl{position:absolute;right:14px;bottom:14px;z-index:7;background:var(--paper);
+  border:1.5px solid var(--ink);border-radius:10px;padding:5px 10px;display:flex;align-items:center}
+#zoomctl input{-webkit-appearance:none;appearance:none;width:190px;height:14px;
+  background:transparent;border:0;padding:0;cursor:pointer}
+#zoomctl input::-webkit-slider-runnable-track{height:2px;background:var(--ink4)}
+#zoomctl input::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;
+  border-radius:50%;background:var(--ink);margin-top:-5px}
+
+/* 气泡里的图片缩略图 */
+.thumbs{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
+.thumbs .th{position:relative}
+.thumbs img{width:78px;height:54px;object-fit:cover;display:block;background:var(--paper3);
+  border:1.5px solid var(--ink);border-radius:6px;cursor:zoom-in}
+.thumbs .th button{position:absolute;top:-6px;right:-6px;width:18px;height:18px;padding:0;
+  border-radius:50%;font-size:10px;line-height:1;display:none;align-items:center;justify-content:center}
+.thumbs .th:hover button{display:flex}
+
+#light{position:fixed;inset:0;z-index:80;background:rgba(255,255,255,.95);display:none;
+  align-items:center;justify-content:center;cursor:zoom-out}
+#light.on{display:flex}
+#light img{max-width:92vw;max-height:92vh;border:2px solid var(--ink)}
+
+/* ---------- 对话（右栏第二页签） ----------
+   一个输入框、一条消息列表，就这些。历史存在前端（localStorage），每次整段丢给
+   /api/chat，后端流式吐回来。模型配置不在这管，走终端里的 qp llm。 */
+#side-chat .chd{display:flex;align-items:center;gap:8px;padding:8px 12px;flex:none;
+  border-bottom:1px solid var(--line)}
+#side-chat .chd .mdl{flex:1;min-width:0;font-size:11px;color:var(--ink3);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#side-chat .chd button{flex:none;padding:2px 8px;font-size:11px;border-radius:7px}
+#side-chat .body{flex:1;min-height:0;overflow-y:auto;padding:10px 12px;
+  display:flex;flex-direction:column;gap:8px}
+#side-chat .m{max-width:90%;font-size:13px;line-height:1.45;padding:7px 10px;border-radius:12px;
+  border:1.5px solid var(--ink);white-space:pre-wrap;overflow-wrap:break-word;word-break:break-word}
+#side-chat .m.u{align-self:flex-end;background:var(--ink);color:var(--paper)}
+#side-chat .m.a{align-self:flex-start;background:var(--paper2)}
+#side-chat .m.a.err{border-style:dashed;border-color:var(--ink3);color:var(--ink2)}
+#side-chat .m .md{white-space:normal}
+#side-chat .m .md p{margin:0}
+#side-chat .m .md p + p{margin-top:6px}
+#side-chat .m .md ul,#side-chat .m .md ol{margin:4px 0;padding-left:18px}
+#side-chat .m .md li{margin:1px 0}
+#side-chat .m .md h1,#side-chat .m .md h2,#side-chat .m .md h3,#side-chat .m .md h4{
+  font-size:13.5px;margin:6px 0 3px}
+#side-chat .m .md code{background:var(--paper3);border-radius:4px;padding:1px 4px;font-size:12px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+#side-chat .m .md pre{background:var(--paper3);border-radius:6px;padding:7px 9px;margin:6px 0;overflow:auto}
+#side-chat .m .md pre code{background:none;padding:0}
+#side-chat .m .md blockquote{margin:6px 0;padding:1px 8px;border-left:3px solid var(--line);color:var(--ink2)}
+#side-chat .m .md hr{border:0;border-top:1px solid var(--line);margin:8px 0}
+#side-chat .m .md .ph{color:var(--ink4)}
+#side-chat .m .md > :first-child{margin-top:0}
+#side-chat .m .md > :last-child{margin-bottom:0}
+#side-chat .cin{flex:none;border-top:1px solid var(--line);padding:8px 12px;
+  display:flex;gap:6px;align-items:flex-end}
+/* 全局 textarea 是 width:100%，在 flex 行里会把按钮挤到只剩一个字宽，这里得让出位置 */
+#side-chat .cin textarea{flex:1;width:auto;min-width:0;min-height:34px;max-height:132px;
+  line-height:1.4;overflow-y:auto}
+#side-chat .cin button{flex:none;height:34px;padding:0 14px;white-space:nowrap}
+/* 正在流式时那个按钮就变成「停止」，换个样子好认 */
+#side-chat .cin button.stop{background:var(--paper);color:var(--ink)}
+#side-chat .cin button.stop:hover{background:var(--ink);color:var(--paper)}
+#side-chat .stopmark{font-size:11px;color:var(--ink4);margin-top:3px}
+#side-chat .tip{flex:none;padding:0 12px 10px;font-size:11px;line-height:1.55;color:var(--ink3)}
+#side-chat .tip:empty{display:none}
+#side-chat .tip code{background:var(--paper3);border-radius:4px;padding:1px 5px;font-size:11px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow-wrap:anywhere}
+
+/* 导出面板：挂在顶栏「导出」下面。「直接导出」和「AI 梳理问题脉络」共用这一个口子。 */
+#exp{position:fixed;top:44px;right:12px;width:430px;max-width:calc(100vw - 24px);
+  background:var(--paper);border:1.5px solid var(--ink);border-radius:10px;padding:12px;
+  z-index:40;display:none}
+#exp.on{display:block}
+#exp .k{font-size:11px;color:var(--ink3);margin-bottom:8px}
+#exp .row{display:flex;gap:6px;flex-wrap:wrap}
+#exp .hint{font-size:11px;line-height:1.6;color:var(--ink3);margin-top:8px}
+#exp .hint:empty{display:none}
+#exp .hint code{background:var(--paper3);border-radius:4px;padding:1px 5px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+#exp-out{display:none;margin-top:10px;border-top:1px solid var(--line);padding-top:10px}
+#exp-out.on{display:block}
+#exp-edit{height:42vh;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:12.5px;line-height:1.55}
+#exp-btns{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+#exp-btns:empty{display:none}
+</style>
+</head>
+<body>
+
+<div id="top">
+  <span class="logo">qp · 追问树</span>
+  <button id="btn-back" title="回到项目列表" style="display:none">←</button>
+  <div id="tabs"></div>
+  <button id="btn-relayout" title="把这棵树里所有气泡放回自动位置">重置布局</button>
+  <button id="btn-md" title="导出成 markdown（当前这棵树 / 这篇笔记）">导出 md</button>
+  <div id="exp">
+    <div class="k">导出 markdown</div>
+    <div class="row" id="exp-menu">
+      <button id="exp-plain">直接导出 md</button>
+      <button id="exp-ai">AI 梳理问题脉络</button>
+    </div>
+    <div class="hint" id="exp-hint"></div>
+    <div id="exp-out">
+      <textarea id="exp-edit" spellcheck="false" placeholder="（AI 梳理的结果会出现在这里，可以直接改）"></textarea>
+    </div>
+    <div id="exp-btns">
+      <button id="exp-stop" style="display:none">停止</button>
+      <button id="exp-save" style="display:none">保存 md</button>
+    </div>
+  </div>
+  <button id="btn-new">＋ 新树</button>
+  <button id="btn-note">＋ 笔记</button>
+</div>
+
+<div id="stage">
+  <div id="canvas"><svg id="edges"></svg></div>
+  <div id="hint"></div>
+  <div id="linkbar"><span id="linkbar-msg"></span><button id="linkbar-cancel">取消</button></div>
+  <div id="zoomctl"><input id="zoom" type="range" min="40" max="200" value="100"></div>
+</div>
+
+<div id="notepane">
+  <div class="np-head">
+    <input id="np-title" placeholder="标题">
+    <button id="np-preview" title="切换 编辑 / 预览">预览</button>
+    <button id="np-del">删除</button>
+  </div>
+  <div class="np-body">
+    <textarea id="np-md" placeholder="写 markdown…（⌘S 保存，自动也会存）"></textarea>
+    <div id="np-view" class="md"></div>
+  </div>
+</div>
+
+<aside id="side">
+  <div id="side-grip" title="拖动调整宽度（双击复位）"></div>
+  <div class="sidetabs">
+    <button id="tab-node" class="on">节点</button>
+    <button id="tab-chat">对话</button>
+  </div>
+  <div id="side-node">
+    <h2>路径</h2>
+    <div class="crumb" id="crumb"></div>
+    <div id="fields"></div>
+  </div>
+  <div id="side-chat">
+    <div class="chd">
+      <span class="mdl" id="chat-model"></span>
+      <button id="chat-clear" title="清空这轮对话">清空</button>
+    </div>
+    <div class="body" id="chat-body"></div>
+    <div class="cin">
+      <textarea id="chat-in" rows="1" placeholder="说点什么…（Enter 发送）"></textarea>
+      <button id="chat-send" class="primary">发送</button>
+    </div>
+    <div class="tip" id="chat-tip"></div>
+  </div>
+</aside>
+
+<div id="toast"></div>
+<div id="offline"><span id="offline-msg"></span><button id="offline-retry">重试</button></div>
+<div id="light"><img alt=""></div>
+
+<script>
+var STATIC_DATA = /*__QP_DATA__*/null;
+var STATIC_MD = /*__QP_MD__*/null;   // 只读快照里按树内嵌 markdown，没服务也能导出
+var HOME = /*__QP_HOME__*/false;     // 在 qp home 里打开时，值是管理页的 URL，顶栏多一个返回按钮
+
+var S = null, curTreeId = null, focusId = null;
+var curNoteId = null;      // 在看哪篇笔记（非空时画布让位给笔记面板）
+var expanded = {};         // 展开着的气泡 id -> true（只存在前端内存里）
+var linking = null;        // 正在等「连到谁」的图片节点 id
+var draft = null;          // {parent: id|null, token: n}
+var editId = null, editToken = 0;
+var view = {x: 60, y: 40, k: 1};
+var SLOT = 226, LEVEL = 126, HALF = 98, PADTOP = 30, READONLY = !!STATIC_DATA;
+
+function toast(msg){
+  var t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('on');
+  clearTimeout(t._h); t._h = setTimeout(function(){ t.classList.remove('on'); }, 2600);
+}
+
+var OFFLINE_MSG = '连不上本地服务 —— 跑 qp ui 的那个终端大概已经关掉了。'
+  + '回到论文所在的目录重新跑 qp ui，这里会自动接上，不会丢东西。';
+var READONLY_MSG = '这是只读快照。想要能边读边记，在论文所在的目录里跑 qp ui。';
+
+var online = true, retryTimer = null;
+
+function showOffline(on, msg, retryable){
+  online = !on;
+  document.body.classList.toggle('offline', !!on);
+  var bar = document.getElementById('offline');
+  if (!on){
+    bar.classList.remove('on');
+    if (retryTimer){ clearInterval(retryTimer); retryTimer = null; }
+    return;
+  }
+  document.getElementById('offline-msg').textContent = msg;
+  document.getElementById('offline-retry').style.display = retryable ? '' : 'none';
+  bar.classList.add('on');
+  if (retryable && !retryTimer) retryTimer = setInterval(ping, 2000);
+}
+
+function netFailed(){
+  if (online) toast(OFFLINE_MSG);
+  showOffline(true, OFFLINE_MSG, true);
+}
+
+function req(url, opt){
+  return fetch(url, opt).then(function(r){
+    return r.text().then(function(t){
+      var d;
+      try { d = JSON.parse(t); }
+      catch (e) { throw new Error('服务返回了看不懂的内容（HTTP ' + r.status + '）'); }
+      if (d && d.error) throw new Error(d.error);
+      return d;
+    });
+  }).then(function(d){
+    if (!online) showOffline(false);
+    return d;
+  }).catch(function(e){
+    if (e instanceof TypeError){ netFailed(); throw new Error(OFFLINE_MSG); }
+    throw e;
+  });
+}
+
+function api(body){
+  var url = body ? '/api/op' : '/api/state';
+  var opt = body ? {method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify(body)} : undefined;
+  return req(url, opt);
+}
+
+/* 断线后每 2 秒探一次，服务回来了就无缝接上 */
+function ping(){
+  fetch('/api/state').then(function(r){ return r.json(); }).then(function(d){
+    if (!d || d.error) return;
+    S = d;
+    if (S.focus) focusId = S.focus;
+    var t = treeOfNode(focusId) || treeById(curTreeId) || S.trees[0];
+    curTreeId = t ? t.id : null;
+    showOffline(false);
+    render();
+    toast('已重新连上');
+  }).catch(function(){ /* 还没起来，继续等 */ });
+}
+
+function guard(){
+  if (READONLY){ toast(READONLY_MSG); return true; }
+  return false;
+}
+
+function nodeById(id){
+  if (!S || !id) return null;
+  for (var i=0;i<S.trees.length;i++)
+    for (var j=0;j<S.trees[i].nodes.length;j++)
+      if (S.trees[i].nodes[j].id === id) return S.trees[i].nodes[j];
+  return null;
+}
+function treeById(id){
+  if (!S || !id) return null;
+  for (var i=0;i<S.trees.length;i++) if (S.trees[i].id === id) return S.trees[i];
+  return null;
+}
+function treeOfNode(id){
+  if (!S || !id) return null;
+  for (var i=0;i<S.trees.length;i++)
+    for (var j=0;j<S.trees[i].nodes.length;j++)
+      if (S.trees[i].nodes[j].id === id) return S.trees[i];
+  return null;
+}
+function curTree(){ return treeById(curTreeId) || treeOfNode(focusId) || (S && S.trees[0]) || null; }
+function chainTo(id){
+  var out = [], cur = nodeById(id), guard = 0;
+  while (cur && guard++ < 5000){ out.unshift(cur); cur = cur.parent ? nodeById(cur.parent) : null; }
+  return out;
+}
+function labelOf(n){
+  if (n.q || n.raw) return n.q || n.raw;
+  return n.kind === 'img' ? '这张图片' : '（空）';
+}
+function esc(s){
+  return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];
+  });
+}
+
+/* ---------- 写操作 ---------- */
+function submit(op){
+  if (guard()) return Promise.resolve();
+  return api(op).then(function(d){
+    S = d; draft = null; editId = null;
+    if (curNoteId && !noteById(curNoteId)) { curNoteId = null; noteRendered = null; }  // 笔记没了就别再指着它
+    if (S.focus) focusId = S.focus;
+    var t = treeOfNode(focusId) || treeById(curTreeId) || S.trees[0];
+    curTreeId = t ? t.id : null;
+    render();
+  }).catch(function(e){ toast(e.message); });
+}
+/* 侧栏字段的保存：只重画树，不重建侧栏，免得打字时被抢焦点 */
+function saveFields(id, fields){
+  if (guard()) return Promise.resolve();
+  return api({op:'set_fields', id:id, fields:fields}).then(function(d){
+    S = d; renderCanvas();
+  }).catch(function(e){ toast(e.message); });
+}
+function saveSource(treeId, source){
+  if (guard()) return Promise.resolve();
+  return api({op:'set_source', tree:treeId, source:source}).then(function(d){
+    S = d; renderCanvas(); renderTabs();
+  }).catch(function(e){ toast(e.message); });
+}
+
+/* ---------- 三种进入编辑的方式，全是原地编辑 ---------- */
+function leaveNote(){
+  if (curNoteId){ flushNote(); curNoteId = null; noteRendered = null; }
+}
+function startNewTree(){
+  if (guard()) return;
+  leaveNote();
+  draft = {parent: null, token: ++editToken};
+  editId = null;
+  render();
+}
+function startDraft(parentId){
+  if (guard()) return;
+  leaveNote();
+  draft = {parent: parentId, token: ++editToken};
+  editId = null;
+  render();
+}
+function startEdit(id){
+  if (guard()) return;
+  leaveNote();
+  editId = id; editToken++;
+  draft = null;
+  render();
+}
+function stopEditing(){
+  draft = null; editId = null;
+}
+
+/* ---------- 渲染 ---------- */
+function render(){
+  renderTabs();
+  document.getElementById('notepane').classList.toggle('on', !!curNoteId);
+  if (curNoteId) renderNote(); else renderCanvas();
+  renderSide();
+  updateLinkBar();
+  document.getElementById('btn-relayout').style.display =
+    (READONLY || curNoteId) ? 'none' : '';
+  document.getElementById('btn-md').textContent = curNoteId ? '导出笔记' : '导出 md';
+  var empty = !S.trees.length && !(S.notes || []).length && !draft;
+  var hint = document.getElementById('hint');
+  hint.style.display = empty ? 'flex' : 'none';
+  hint.textContent = empty ? '还没有树\n点右上「＋ 新树」写下你最初想问什么' : '';
+}
+
+function renderTabs(){
+  var box = document.getElementById('tabs');
+  box.innerHTML = '';
+  S.trees.forEach(function(t){
+    var root = null;
+    for (var i=0;i<t.nodes.length;i++) if (!t.nodes[i].parent){ root = t.nodes[i]; break; }
+    var b = document.createElement('button');
+    var on = (t.id === curTreeId) && !curNoteId && !(draft && draft.parent === null);
+    b.className = 'tab' + (on ? ' on' : '');
+    b.textContent = root ? labelOf(root) : t.id;
+    b.title = (t.source ? t.source + '\n' : '') + (root ? root.raw : '');
+    b.onclick = function(){
+      stopEditing(); closeLink(); flushNote();
+      curNoteId = null; noteRendered = null;
+      curTreeId = t.id;
+      if (root && root.id !== focusId) submit({op:'focus', id: root.id});
+      else render();
+    };
+    box.appendChild(b);
+  });
+  (S.notes || []).forEach(function(p){
+    var b = document.createElement('button');
+    b.className = 'tab note' + (p.id === curNoteId ? ' on' : '');
+    b.textContent = '▤ ' + (p.title || '未命名笔记');
+    b.title = '笔记';
+    b.onclick = function(){ stopEditing(); closeLink(); openNote(p.id); };
+    box.appendChild(b);
+  });
+  if (draft && draft.parent === null){
+    var nb = document.createElement('button');
+    nb.className = 'tab on'; nb.textContent = '新树…';
+    nb.onclick = function(){ stopEditing(); render(); };
+    box.appendChild(nb);
+  }
+}
+
+function draftNode(parent){
+  return {id: '__draft__', parent: parent, raw: '', q: '', blocker: '',
+          resolution: '', status: 'open', _draft: true};
+}
+
+function currentNodes(){
+  if (draft && draft.parent === null) return [draftNode(null)];
+  var t = curTree();
+  if (!t) return [];
+  var arr = t.nodes.slice();
+  if (draft && draft.parent && nodeById(draft.parent)) arr.push(draftNode(draft.parent));
+  return arr;
+}
+
+function renderCanvas(){
+  var canvas = document.getElementById('canvas');
+  var svg = document.getElementById('edges');
+  Array.prototype.slice.call(canvas.querySelectorAll('.node,.blk')).forEach(function(e){ e.remove(); });
+  svg.innerHTML = '';
+
+  var nodes = currentNodes();
+  if (!nodes.length) return;
+
+  var anc = {};
+  if (focusId) chainTo(focusId).forEach(function(n){ anc[n.id] = true; });
+
+  var kids = {};
+  nodes.forEach(function(n){ var p = n.parent || ''; (kids[p] = kids[p] || []).push(n); });
+  // 兄弟顺序就是 JSON 里的先后，跟焦点无关 —— 点谁都不会让平行节点换位。
+
+  var cursor = 0, pos = {};
+  function walk(n, depth){
+    var ch = kids[n.id] || [];
+    if (!ch.length){ pos[n.id] = {x: cursor, y: depth}; cursor += 1; }
+    else {
+      ch.forEach(function(c){ walk(c, depth + 1); });
+      pos[n.id] = {x: (pos[ch[0].id].x + pos[ch[ch.length-1].id].x) / 2, y: depth};
+    }
+  }
+  (kids[''] || []).forEach(function(r){ walk(r, 0); cursor += 0.6; });
+
+  var els = {}, focusing = null;
+
+  nodes.forEach(function(n){
+    var p = pos[n.id];
+    if (!p) return;
+    var isDraft = !!n._draft;
+    var isEditing = isDraft || editId === n.id;
+    var isImg = n.kind === 'img' && (n.imgs || []).length > 0;
+
+    var el = document.createElement('div');
+    el.className = 'node' + (n.parent ? '' : ' root')
+      + (n.id === focusId ? ' focus' : '')
+      + (n.status === 'closed' && !isDraft ? ' closed' : '')
+      + (isEditing ? ' draft' : '')
+      + (isImg ? ' imgnode' : '')
+      + (linking === n.id ? ' linking' : '');
+    el.dataset.id = n.id;
+    // 拖过的节点用自己记下的坐标，其余走自动布局
+    el.style.left = (n.pos ? n.pos[0] : p.x * SLOT) + 'px';
+    el.style.top  = (n.pos ? n.pos[1] : p.y * LEVEL) + 'px';
+
+    var acts = document.createElement('div');
+    acts.className = 'acts';
+    if (!isEditing){
+      var specs = isImg
+        ? [['🔗', 'link', '连到某个气泡'], ['＋', 'add', '加子问题'],
+           ['✎', 'edit', '改图片描述'], ['✕', 'del', '删掉这个图片节点']]
+        : [['＋', 'add', '加子问题'], ['✎', 'edit', '编辑'],
+           ['💬', 'ask', '丢进对话里，接着提要求'], ['✕', 'del', '删除这棵子树']];
+      specs.forEach(function(spec){
+        var btn = document.createElement('button');
+        btn.textContent = spec[0]; btn.title = spec[2];
+        btn.onclick = function(e){
+          e.stopPropagation();
+          if (spec[1] === 'add') return startDraft(n.id);
+          if (spec[1] === 'edit') return startEdit(n.id);
+          if (spec[1] === 'link') return beginLink(n.id);
+          if (spec[1] === 'ask') return askNode(n.id);
+          removeNode(n);
+        };
+        acts.appendChild(btn);
+      });
+    }
+    el.appendChild(acts);
+
+    var bubble = document.createElement('div');
+    bubble.className = 'bubble';
+
+    if (isEditing){
+      var ta = document.createElement('textarea');
+      ta.value = isDraft ? '' : n.raw;
+      ta.placeholder = isDraft ? '写下你此刻卡住的地方…' : '';
+      ta.dataset.token = isDraft ? draft.token : editToken;
+      ta.onkeydown = function(e){
+        if (e.isComposing || e.keyCode === 229) return;   // 输入法还在组合，回车是在选词
+        if (e.key === 'Enter' && !e.shiftKey){
+          e.preventDefault();
+          commitEdit(n, ta);
+        } else if (e.key === 'Escape'){
+          e.preventDefault();
+          stopEditing(); render();
+        }
+      };
+      ta.onblur = function(){
+        var tok = +ta.dataset.token, val = ta.value.trim();
+        setTimeout(function(){
+          if (document.activeElement === ta) return;
+          var stillMine = isDraft ? (draft && draft.token === tok) : (editId === n.id);
+          if (!stillMine) return;                 // 已经被别的操作接管，别插手
+          if (!val){
+            stopEditing(); render(); return;
+          }
+          if (isDraft){
+            draft = null;
+            if (n.parent === null) submit({op:'new_tree', raw: val, source: ''});
+            else submit({op:'add', parent: n.parent, raw: val});
+          } else if (val !== n.raw){
+            editId = null;
+            submit({op:'edit', id: n.id, raw: val});
+          } else {
+            editId = null; render();
+          }
+        }, 0);
+      };
+      bubble.appendChild(ta);
+      focusing = ta;
+    } else if (isImg){
+      // 图片节点：图是主体，描述在下面，点图放大
+      var iw = document.createElement('img');
+      iw.className = 'pic'; iw.src = 'img/' + n.imgs[0]; iw.alt = n.raw || '';
+      iw.onclick = function(e){
+        e.stopPropagation();
+        if (justDragged){ justDragged = false; return; }
+        if (linking) return pickParent(n);
+        focusNode(n);
+        openLight('img/' + n.imgs[0]);
+      };
+      bubble.appendChild(iw);
+      var cap = document.createElement('div');
+      if (n.raw){ cap.className = 'cap md'; cap.innerHTML = mdToHtml(n.raw); }
+      else { cap.className = 'cap ph'; cap.textContent = '（在右边栏写图片描述）'; }
+      bubble.appendChild(cap);
+      if (n.imgs.length > 1) bubble.appendChild(thumbsFor(n, n.imgs.slice(1)));
+      bubble.onclick = function(e){
+        e.stopPropagation();
+        if (justDragged){ justDragged = false; return; }
+        if (linking) return pickParent(n);
+        focusNode(n);
+      };
+    } else {
+      var tx = document.createElement('div');
+      tx.className = 'txt md' + (expanded[n.id] ? '' : ' clamp');
+      tx.innerHTML = mdToHtml(labelOf(n));
+      bubble.appendChild(tx);
+      var fold = document.createElement('div');
+      fold.className = 'fold';
+      fold.textContent = expanded[n.id] ? '收起' : '展开';
+      fold.onclick = function(e){
+        e.stopPropagation();
+        if (expanded[n.id]) delete expanded[n.id]; else expanded[n.id] = true;
+        renderCanvas();
+      };
+      bubble.appendChild(fold);
+      if (expanded[n.id]) bubble.classList.add('wide');
+      if (n.status === 'closed'){
+        var bd = document.createElement('div');
+        bd.className = 'badge'; bd.textContent = '✓';
+        bubble.appendChild(bd);
+      }
+      if (n.imgs && n.imgs.length) bubble.appendChild(thumbsFor(n));
+      bubble.onclick = function(e){
+        e.stopPropagation();
+        if (justDragged){ justDragged = false; return; }   // 刚拖完，不算点击
+        if (linking) return pickParent(n);
+        focusNode(n);
+      };
+    }
+    el.appendChild(bubble);
+
+    // 按住气泡拖动：节点自由移动，连线跟着走
+    if (!isEditing){
+      el.addEventListener('mousedown', function(e){
+        if (READONLY || e.button !== 0) return;
+        if (e.target.closest('.acts') || e.target.closest('textarea')) return;
+        nodeDrag = {
+          el: el, id: n.id, x0: e.clientX, y0: e.clientY,
+          l0: parseFloat(el.style.left) || 0,
+          t0: parseFloat(el.style.top) || 0, moved: false,
+        };
+        e.stopPropagation();
+      });
+    }
+
+    canvas.appendChild(el);
+    els[n.id] = el;
+  });
+
+  syncFolds();
+
+  // 贴了图 / 多行会把气泡撑高，逐层把下面那层整体下推一点，免得压住。
+  // 手工拖过的节点按用户放的位置不动。
+  var byDepth = {};
+  nodes.forEach(function(n){
+    var p = pos[n.id];
+    if (!p || n.pos) return;
+    var d = Math.round(p.y);
+    (byDepth[d] = byDepth[d] || []).push(els[n.id]);
+  });
+  var shift = 0;
+  Object.keys(byDepth).map(Number).sort(function(a, b){ return a - b; }).forEach(function(d){
+    var list = byDepth[d];
+    if (shift) list.forEach(function(el){
+      el.style.top = (parseFloat(el.style.top) + shift) + 'px';
+    });
+    var low = 0;
+    list.forEach(function(el){
+      var bb = el.querySelector('.bubble');
+      low = Math.max(low, parseFloat(el.style.top) + bb.offsetTop + bb.offsetHeight);
+    });
+    shift += Math.max(0, low + 20 - (d + 1) * LEVEL);
+  });
+
+  RENDER = {nodes: nodes, kids: kids, els: els, anc: anc};
+  requestAnimationFrame(function(){
+    drawEdges();
+    applyView();
+    if (focusing){
+      focusing.focus();
+      focusing.setSelectionRange(focusing.value.length, focusing.value.length);
+    }
+  });
+}
+
+/* ---------- 连线 ----------
+   每次从节点的「当前实际位置」现算，所以拖动时线是自然跟随的。 */
+var RENDER = {nodes: [], kids: {}, els: {}, anc: {}};
+var nodeDrag = null, dragRaf = 0, justDragged = false;
+
+function drawEdges(){
+  var canvas = document.getElementById('canvas');
+  var svg = document.getElementById('edges');
+  svg.innerHTML = '';
+  Array.prototype.slice.call(canvas.querySelectorAll('.blk')).forEach(function(e){ e.remove(); });
+
+  var nodes = RENDER.nodes, kids = RENDER.kids, els = RENDER.els, anc = RENDER.anc;
+  nodes.forEach(function(n){
+    var el = els[n.id];
+    if (!el) return;
+    var mine = el.querySelector('.bubble');
+    var top = parseFloat(el.style.top) + mine.offsetTop;
+    var h = mine.offsetHeight;
+    var cx = parseFloat(el.style.left) + el.offsetWidth / 2;
+    (kids[n.id] || []).forEach(function(c){
+      var ce = els[c.id];
+      if (!ce) return;
+      var cb = ce.querySelector('.bubble');
+      var ctop = parseFloat(ce.style.top) + cb.offsetTop;
+      var ccx = parseFloat(ce.style.left) + ce.offsetWidth / 2;
+      var mid = (top + h + ctop) / 2;
+      var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', 'M' + cx + ' ' + (top + h)
+        + ' C ' + cx + ' ' + mid + ', ' + ccx + ' ' + mid + ', ' + ccx + ' ' + ctop);
+      if (anc[n.id] && anc[c.id]) path.setAttribute('class', 'main');
+      svg.appendChild(path);
+      if (c.blocker){
+        var lab = document.createElement('div');
+        lab.className = 'blk';
+        lab.textContent = '卡点：' + c.blocker;
+        lab.style.left = ((cx + ccx) / 2 - 70) + 'px';
+        lab.style.top = (mid - 9) + 'px';
+        canvas.appendChild(lab);
+      }
+    });
+  });
+}
+
+function submitPos(id, x, y){
+  if (READONLY) return;
+  api({op:'set_pos', id:id, pos:[Math.round(x), Math.round(y)]})
+    .then(function(d){ S = d; })
+    .catch(function(e){ toast(e.message); });
+}
+function resetLayout(){
+  if (READONLY) return;
+  submit({op:'reset_layout', tree: curTreeId});
+  view = {x: 60, y: 40, k: 1}; applyView(); syncZoom();
+}
+
+/* ---------- 折叠 ----------
+   量一遍有没有真被截断：没截断就把 3 行限制去掉、也不给「展开」按钮，
+   免得点了半天什么都不会变。（原来那套悬浮卡片就是在这儿露馅的：内容没满也弹。） */
+function syncFolds(){
+  var canvas = document.getElementById('canvas');
+  Array.prototype.slice.call(canvas.querySelectorAll('.node')).forEach(function(el){
+    var bb = el.querySelector('.bubble'), tx = el.querySelector('.txt');
+    if (!bb || !tx || bb.classList.contains('wide')) return;
+    if (tx.scrollHeight > tx.clientHeight + 1) bb.classList.add('more');
+    else tx.classList.remove('clamp');
+  });
+}
+
+/* ---------- 把图片连到某个节点（就是改 parent，和父子节点一条逻辑） ---------- */
+function beginLink(id){
+  if (READONLY) return;
+  linking = id;
+  renderCanvas();
+  updateLinkBar();          // 提示就在顶部那条 linkbar 上，不用再迭一层 toast
+}
+
+function closeLink(){
+  if (!linking) return;
+  linking = null;
+  updateLinkBar();
+  renderCanvas();
+}
+
+function pickParent(n){
+  var id = linking;
+  if (!id || id === n.id) return;
+  linking = null;
+  updateLinkBar();
+  submit({op:'set_parent', id:id, parent:n.id})
+    .then(function(){ toast('已连到「' + labelOf(n) + '」'); });
+}
+
+function updateLinkBar(){
+  var bar = document.getElementById('linkbar');
+  if (!bar) return;
+  bar.classList.toggle('on', !!linking);
+  document.body.classList.toggle('linking', !!linking);
+  if (linking){
+    var p = nodeById(linking);
+    document.getElementById('linkbar-msg').textContent =
+      '「' + (p ? labelOf(p) : '图片') + '」还没接上 —— 点一个气泡当它的父节点';
+  }
+}
+document.getElementById('linkbar-cancel').onclick = closeLink;
+window.addEventListener('keydown', function(e){
+  if (e.key === 'Escape' && linking) closeLink();
+});
+
+/* ---------- 图片 ---------- */
+function thumbsFor(n, names){
+  var box = document.createElement('div');
+  box.className = 'thumbs';
+  (names || n.imgs || []).forEach(function(name){
+    var th = document.createElement('div');
+    th.className = 'th';
+    var im = document.createElement('img');
+    im.src = 'img/' + name;
+    im.loading = 'lazy';
+    im.decoding = 'async';
+    im.alt = '';
+    im.onclick = function(e){ e.stopPropagation(); openLight('img/' + name); };
+    th.appendChild(im);
+    if (!READONLY){
+      var x = document.createElement('button');
+      x.textContent = '✕';
+      x.onclick = function(e){
+        e.stopPropagation(); e.preventDefault();
+        api({op:'del_img', id:n.id, name:name})
+          .then(function(d){ S = d; render(); })
+          .catch(function(err){ toast(err.message); });
+      };
+      th.appendChild(x);
+    }
+    box.appendChild(th);
+  });
+  return box;
+}
+
+function openLight(src){
+  var l = document.getElementById('light');
+  l.querySelector('img').src = src;
+  l.classList.add('on');
+}
+document.getElementById('light').onclick = function(){
+  this.classList.remove('on');
+  this.querySelector('img').src = '';
+};
+
+/* 长边超过 2000px 才动它：按比例缩到 2000 并转 WebP，省磁盘也省加载 */
+function shrinkImage(file){
+  return new Promise(function(resolve){
+    var url = URL.createObjectURL(file);
+    var im = new Image();
+    im.onload = function(){
+      URL.revokeObjectURL(url);
+      var m = Math.max(im.naturalWidth, im.naturalHeight);
+      if (m <= 2000){ resolve({blob: file, type: file.type || 'image/png'}); return; }
+      var s = 2000 / m, c = document.createElement('canvas');
+      c.width = Math.round(im.naturalWidth * s);
+      c.height = Math.round(im.naturalHeight * s);
+      c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+      c.toBlob(function(b){ resolve(b ? {blob: b, type: 'image/webp'} : null); }, 'image/webp', 0.92);
+    };
+    im.onerror = function(){ URL.revokeObjectURL(url); resolve(null); };
+    im.src = url;
+  });
+}
+
+/* 粘贴图片 → 新建一个「自由图片节点」，落在视口中央，随后进入「连到谁」模式。
+   走原始字节上传，不经过 base64。 */
+document.addEventListener('paste', function(e){
+  if (READONLY) return;
+  var items = (e.clipboardData || {}).items || [], f = null;
+  for (var i = 0; i < items.length; i++){
+    if (items[i].kind === 'file' && /^image\//.test(items[i].type)){
+      f = items[i].getAsFile();
+      break;
+    }
+  }
+  if (!f) return;
+  e.preventDefault();
+  if (!S || !S.trees.length){ toast('先建一棵树，图片才有地方放'); return; }
+  if (curNoteId){ flushNote(); curNoteId = null; noteRendered = null; }
+  var r = document.getElementById('stage').getBoundingClientRect();
+  var cx = (r.left + r.width / 2 - view.x) / view.k - 134;   // 图节点宽 268，减半让它落在正中
+  var cy = (r.top + r.height / 2 - view.y) / view.k - 60;
+  shrinkImage(f).then(function(res){
+    if (!res) throw new Error('这张图读不出来');
+    return fetch('/api/img?at=' + Math.round(cx) + ',' + Math.round(cy), {
+      method: 'POST', headers: {'Content-Type': res.type}, body: res.blob,
+    });
+  }).then(function(resp){
+    if (!resp.ok) throw new Error('上传失败（HTTP ' + resp.status + '）');
+    return resp.json();
+  }).then(function(d){
+    if (d.error) throw new Error(d.error);
+    S = d;
+    if (S.focus) focusId = S.focus;
+    var t = treeOfNode(focusId) || treeById(curTreeId) || S.trees[0];
+    curTreeId = t ? t.id : null;
+    beginLink(focusId);          // 直接进入「把这张图连到谁」
+  }).catch(function(err){
+    if (err instanceof TypeError){ netFailed(); return; }
+    toast(err.message);
+  });
+});
+
+window.addEventListener('mousemove', function(e){
+  if (!nodeDrag) return;
+  var d = nodeDrag;
+  if (!d.moved){
+    if (Math.abs(e.clientX - d.x0) + Math.abs(e.clientY - d.y0) < 4) return;
+    d.moved = true;
+    d.el.classList.add('dragging');
+  }
+  // 画布整体有 scale(k)，屏幕位移要除以 k 才是画布位移
+  d.el.style.left = (d.l0 + (e.clientX - d.x0) / view.k) + 'px';
+  d.el.style.top  = (d.t0 + (e.clientY - d.y0) / view.k) + 'px';
+  if (!dragRaf) dragRaf = requestAnimationFrame(function(){ dragRaf = 0; drawEdges(); });
+});
+window.addEventListener('mouseup', function(){
+  if (!nodeDrag) return;
+  var d = nodeDrag;
+  nodeDrag = null;
+  if (!d.moved) return;
+  justDragged = true;
+  d.el.classList.remove('dragging');
+  submitPos(d.id, parseFloat(d.el.style.left), parseFloat(d.el.style.top));
+});
+document.addEventListener('mousedown', function(){ justDragged = false; }, true);
+
+function commitEdit(n, ta){
+  var val = ta.value.trim();
+  if (!val){ stopEditing(); render(); return; }
+  if (n._draft){
+    draft = null;
+    if (n.parent === null) submit({op:'new_tree', raw: val, source: ''});
+    else submit({op:'add', parent: n.parent, raw: val});
+  } else if (val !== n.raw){
+    editId = null;
+    submit({op:'edit', id: n.id, raw: val});
+  } else {
+    stopEditing(); render();
+  }
+}
+
+function removeNode(n){
+  var t = treeOfNode(n.id);
+  var count = 1, frontier = [n.id];
+  while (frontier.length){
+    var cur = frontier.pop();
+    t.nodes.forEach(function(x){ if (x.parent === cur){ count++; frontier.push(x.id); } });
+  }
+  var extra = count > 1 ? '（连同下面 ' + (count - 1) + ' 个）' : '';
+  if (confirm('删除「' + labelOf(n) + '」' + extra + '？')) submit({op:'delete', id: n.id});
+}
+
+/* ---------- 侧栏 ---------- */
+function renderSide(){
+  var crumb = document.getElementById('crumb');
+  var box = document.getElementById('fields');
+  // 换了焦点 = 你想看这个节点，自动切回「节点」页签；聊天记录不受影响，切回去还在
+  if (focusId !== shownFocus){
+    shownFocus = focusId;
+    if (sideTabCur === 'chat') sideTab('node');
+  }
+  crumb.innerHTML = '';
+  box.innerHTML = '';
+  if (curNoteId){
+    var p = noteById(curNoteId);
+    crumb.innerHTML = '<span class="sep">笔记</span>';
+    if (!p) return;
+    box.innerHTML =
+      '<div class="field"><div class="k">标题</div><div class="v">' + esc(p.title || '未命名笔记') + '</div></div>'
+      + '<div class="field"><div class="k">篇幅</div><div class="v">' + ((p.md || '').length) + ' 字</div></div>'
+      + '<div class="field"><div class="k">更新</div><div class="v">' + esc(p.updated || '') + '</div></div>';
+    return;
+  }
+  var f = focusId ? nodeById(focusId) : null;
+  if (!f){
+    crumb.innerHTML = '<span class="sep">点一个气泡</span>';
+    return;
+  }
+  chainTo(f.id).forEach(function(n, i){
+    if (i){
+      var s = document.createElement('span');
+      s.className = 'sep'; s.textContent = '›';
+      crumb.appendChild(s);
+    }
+    var c = document.createElement('span');
+    c.className = 'c' + (n.id === f.id ? ' on' : '');
+    c.textContent = labelOf(n);
+    c.title = n.raw;
+    c.onclick = function(){ if (n.id !== focusId) submit({op:'focus', id: n.id}); };
+    crumb.appendChild(c);
+  });
+
+  var t = treeOfNode(f.id);
+  var html = '';
+  if (t){
+    html += '<div class="field"><div class="k">来源</div>'
+          + '<input id="f-src" placeholder="论文 / 页码 / 链接"></div>';
+  }
+  var isImg = f.kind === 'img';
+  html += '<div class="field"><div class="k">'
+        + (isImg ? '图片描述' : '原话') + '</div>'
+        + (isImg
+            ? '<textarea id="f-cap" rows="3" placeholder="给这张图写一句话…"></textarea>'
+            : '<div class="v md">' + mdToHtml(f.raw) + '</div>')
+        + '</div>';
+  html += '<div class="field"><div class="k">卡点</div>'
+        + '<textarea id="f-blk" rows="2"></textarea></div>';
+  html += '<div class="field"><div class="k">已明白</div>'
+        + '<textarea id="f-res" rows="2"></textarea></div>';
+  html += '<div class="row"><button id="f-close"></button></div>';
+  box.innerHTML = html;
+
+  if (t){
+    var src = document.getElementById('f-src');
+    src.value = t.source || '';
+    src.onkeydown = function(e){
+      if (e.isComposing || e.keyCode === 229) return;
+      if (e.key === 'Enter'){ e.preventDefault(); src.blur(); }
+    };
+    src.onblur = function(){
+      var v = src.value.trim();
+      if (v !== (t.source || '')) saveSource(t.id, v);
+    };
+  }
+  if (isImg){
+    var cap = document.getElementById('f-cap');
+    cap.value = f.raw || '';
+    cap.onkeydown = function(e){
+      if (e.isComposing || e.keyCode === 229) return;
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)){ e.preventDefault(); cap.blur(); }
+    };
+    cap.onblur = function(){ if (cap.value !== (f.raw || '')) saveFields(f.id, make('raw', cap.value)); };
+  }
+  var blk = document.getElementById('f-blk'), res = document.getElementById('f-res');
+  blk.value = f.blocker || '';
+  res.value = f.resolution || '';
+  function bind(ta, key){
+    ta.onkeydown = function(e){
+      if (e.isComposing || e.keyCode === 229) return;
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey || !e.shiftKey)){
+        e.preventDefault(); ta.blur();
+      }
+    };
+    ta.onblur = function(){ if (ta.value.trim() !== (f[key] || '')) saveFields(f.id, make(key, ta.value.trim())); };
+  }
+  function make(k, v){ var o = {}; o[k] = v; return o; }
+  bind(blk, 'blocker');
+  bind(res, 'resolution');
+
+  var cb = document.getElementById('f-close');
+  cb.textContent = f.status === 'closed' ? '重新打开' : '收口';
+  cb.onclick = function(){
+    submit({op:'set_fields', id: f.id, fields: {status: f.status === 'closed' ? 'open' : 'closed'}});
+  };
+}
+
+/* ---------- 视图变换 ---------- */
+function applyView(){
+  document.getElementById('canvas').style.transform =
+    'translate(' + view.x + 'px,' + view.y + 'px) scale(' + view.k + ')';
+}
+(function(){
+  var stage = document.getElementById('stage'), drag = null;
+  stage.addEventListener('mousedown', function(e){
+    if (e.target.closest('.node') || e.target.closest('#zoomctl')) return;
+    drag = {x: e.clientX, y: e.clientY, ox: view.x, oy: view.y};
+    stage.classList.add('grabbing');
+  });
+  window.addEventListener('mousemove', function(e){
+    if (!drag) return;
+    view.x = drag.ox + e.clientX - drag.x;
+    view.y = drag.oy + e.clientY - drag.y;
+    applyView();
+  });
+  window.addEventListener('mouseup', function(){ drag = null; stage.classList.remove('grabbing'); });
+  stage.addEventListener('wheel', function(e){
+    e.preventDefault();
+    // ⌘/Ctrl + 滚轮 = 缩放；纯双指滑动 = 平移视图（缩放主要交给右下角滑块）
+    if (e.ctrlKey || e.metaKey){
+      zoomAt(e.clientX, e.clientY, e.deltaY < 0 ? 1.05 : 1 / 1.05);
+      return;
+    }
+    view.x -= e.deltaX;
+    view.y -= e.deltaY;
+    applyView();
+  }, {passive: false});
+})();
+
+/* ---------- 缩放滑块 ---------- */
+function zoomAt(clientX, clientY, f){
+  var r = document.getElementById('stage').getBoundingClientRect();
+  var mx = clientX - r.left, my = clientY - r.top;
+  var k = Math.min(2.0, Math.max(0.4, view.k * f));
+  view.x = mx - (mx - view.x) * (k / view.k);
+  view.y = my - (my - view.y) * (k / view.k);
+  view.k = k;
+  applyView();
+  syncZoom();
+}
+function syncZoom(){
+  var z = document.getElementById('zoom');
+  if (z) z.value = Math.round(view.k * 100);
+}
+document.getElementById('zoom').oninput = function(){
+  var r = document.getElementById('stage').getBoundingClientRect();
+  zoomAt(r.left + r.width / 2, r.top + r.height / 2, (this.value / 100) / view.k);
+};
+document.getElementById('btn-back').onclick = function(){
+  location.href = HOME ? HOME : '/';
+};
+
+document.getElementById('btn-new').onclick = startNewTree;
+document.getElementById('btn-relayout').onclick = resetLayout;
+document.getElementById('offline-retry').onclick = function(){ ping(); };
+
+/* ---------- 导出 markdown ---------- */
+function mdFileName(){
+  var t = treeById(curTreeId), root = null;
+  if (t) for (var i = 0; i < t.nodes.length; i++) if (!t.nodes[i].parent){ root = t.nodes[i]; break; }
+  var n = root ? (root.q || root.raw || '') : '';
+  n = n.slice(0, 40).replace(/[\\/:*?"<>|\s]+/g, ' ').trim();
+  return (n || 'qp') + '.md';
+}
+/* 保存 markdown。原生窗口（pywebview / WKWebView）不把 blob 链接的 download 当下载，
+   而是把 webview 直接导航成一个 markdown 页面 —— 界面会被顶掉，而且文件其实没落盘。
+   所以原生窗口优先走 Python 落盘（还能把真实路径回报出来）；浏览器里才用 blob 链接。 */
+function downloadMd(text, name){
+  name = name || mdFileName();
+  var api = window.pywebview && window.pywebview.api;
+  if (api && api.save_md){
+    api.save_md(name, text).then(function(res){
+      if (typeof res === 'string' && res.indexOf('ERR:') === 0) toast('保存失败：' + res.slice(4));
+      else toast('已保存到 ' + res);
+    }).catch(function(e){ toast('保存失败：' + ((e && e.message) || e)); });
+    return;
+  }
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], {type:'text/markdown;charset=utf-8'}));
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 0);
+  toast('已保存 ' + name + '（在下载文件夹）');
+}
+/* 整树梳理：提示词在就拼在这里，走的是 /api/chat 那条流式通道 —— 不为它另开端点。 */
+var PROMPT_TREE = [
+  '下面是一棵「追问树」的完整记录：缩进表示追问的层级，`卡点` / `已明白` 是节点上的附注，',
+  '图片节点写成 `![描述](路径)`。',
+  '',
+  '请通读整棵树，帮我梳理两件事：',
+  '1. 我在这篇文章（或这个 topic）里**想到了哪些问题** —— 用我自己的说法，按追问的实际顺序列出来。',
+  '2. 每个问题**后面跟着什么** —— 相关的回答，或者由它引出的更深的问题。',
+  '   注意：回答和后续常常就藏在它的子节点里。',
+  '',
+  '要求：',
+  '- 用**我自己的说法**，别改写成教科书式的提问。',
+  '- **不要**给每个问题下「解决了 / 没解决」的结论。',
+  '- **不要**套「起点 / 关键转折 / 卡点 / 突破 / 最终框架」这类骨架，',
+  '  也别把我的思考拔高成方法论、不要写小结或感想。',
+  '- 不要加我没问过的问题。',
+  '',
+  '格式越朴素越好，例如：',
+  '1. **<我想的问题>**',
+  '   - <相关的回答 / 由它引出的更深的问题>',
+  '2. **<我想的问题>**',
+  '   - <…>',
+  '',
+  '树：'
+].join('\n');
+
+var expState = 'idle', expAbort = null, expText = '', expConfigured = true;
+
+function expShow(state, msg){
+  expState = state;
+  document.getElementById('exp-menu').style.display = (state === 'run') ? 'none' : '';
+  document.getElementById('exp-out').classList.toggle('on', state === 'run' || state === 'done');
+  document.getElementById('exp-stop').style.display = (state === 'run') ? '' : 'none';
+  document.getElementById('exp-save').style.display = (state === 'done' && expText.trim()) ? '' : 'none';
+  document.getElementById('exp-ai').style.display = (expConfigured && !READONLY) ? '' : 'none';
+  document.getElementById('exp-hint').innerHTML = msg ? esc(msg)
+    : (READONLY ? '只读快照没有服务，梳理不了 —— 只能直接导出。'
+       : (expConfigured
+          ? (state === 'done' ? '上面是模型梳理出来的，可以直接改；确认后点「保存 md」。' : '')
+          : '还没配模型。终端里跑一次 '
+            + '<code>qp llm --preset zhipu --key sk-xxx --global</code>，然后刷新本页。'));
+}
+function expOpen(on){
+  var e = document.getElementById('exp');
+  if (!on){ e.classList.remove('on'); return; }
+  e.classList.add('on');
+  if (expAbort){ expShow('run'); return; }         // 还在跑，别把已经吐出来的字抹了
+  if (expText){ expShow('done'); return; }         // 已经有结果：收起来再打开也还在，不会白跑
+  document.getElementById('exp-edit').value = '';
+  expShow('idle');
+  if (!READONLY) req('/api/llm').then(function(d){
+    expConfigured = !!d.configured;
+    if (expState === 'idle') expShow('idle');
+  }).catch(function(){});
+}
+function expName(){
+  var n = mdFileName();
+  return (/[.]md$/.test(n) ? n.slice(0, -3) : n) + '-梳理.md';
+}
+function expSave(){
+  /* 只存 AI 梳理出来的问题脉络 —— 原树不再附在后面（两者高度重合，附录价值不大） */
+  var t = (document.getElementById('exp-edit').value || '').trim();
+  if (!t){ toast('还没有内容'); return; }
+  downloadMd(t, expName());
+}
+function expRun(){
+  if (expAbort || READONLY || !curTreeId) return;
+  expText = '';
+  var ta = document.getElementById('exp-edit');
+  ta.value = '';
+  expShow('run');
+  expAbort = new AbortController();
+  fetch('/api/md?tree=' + encodeURIComponent(curTreeId))
+    .then(function(r){ if (!r.ok) throw new Error('读不到这棵树（HTTP ' + r.status + '）'); return r.text(); })
+    .then(function(md){
+      return fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({messages: [{role:'user', content: PROMPT_TREE + '\n\n' + md}]}),
+        signal: expAbort.signal});
+    })
+    .then(function(r){
+      if (!r.ok) return r.text().then(function(t){
+        var msg = 'HTTP ' + r.status;
+        try { var j = JSON.parse(t); if (j && j.error) msg = j.error; } catch (x) {}
+        throw new Error(msg);
+      });
+      var reader = r.body.getReader(), dec = new TextDecoder(), buf = '';
+      function pump(){
+        return reader.read().then(function(res){
+          if (res.done) return;
+          buf += dec.decode(res.value, {stream: true});
+          var i;
+          while ((i = buf.indexOf('\n')) >= 0){
+            var line = buf.slice(0, i); buf = buf.slice(i + 1);
+            if (!line.trim()) continue;
+            var o; try { o = JSON.parse(line); } catch (x) { continue; }
+            if (o.error) throw new Error(o.error);
+            if (o.d){ expText += o.d; ta.value = expText; ta.scrollTop = ta.scrollHeight; }
+          }
+          return pump();
+        });
+      }
+      return pump();
+    })
+    .then(function(){
+      expAbort = null;
+      /* 不自动落盘 —— 让用户看一眼、改完再自己点「保存 md」 */
+      expShow(expText.trim() ? 'done' : 'idle', expText.trim() ? '' : '模型没吐东西，再点一次试试？');
+      if (expText.trim()) toast('梳理好了，确认 / 改完再点「保存 md」');
+    })
+    .catch(function(e){
+      expAbort = null;
+      if (e && e.name === 'AbortError'){ expShow(expText ? 'done' : 'idle'); toast('已停止'); return; }
+      if (e instanceof TypeError){ netFailed(); expShow('idle'); return; }
+      expShow('idle', e.message);
+    });
+}
+document.getElementById('btn-md').onclick = function(){
+  if (curNoteId){                     // 笔记不是树，没有「问题脉络」可梳理，保持一键直出
+    var p = noteById(curNoteId);
+    if (!p){ toast('笔记没了'); return; }
+    var nm = (p.title || '笔记').slice(0, 40).replace(/[\\/:*?"<>|\s]+/g, ' ').trim() || '笔记';
+    downloadMd('# ' + (p.title || '未命名笔记') + '\n\n'
+      + (document.getElementById('np-md').value || ''), nm + '.md');
+    return;
+  }
+  if (!curTreeId){ toast('没有树也没有笔记'); return; }
+  expOpen(!document.getElementById('exp').classList.contains('on'));
+};
+document.getElementById('exp-plain').onclick = function(){
+  if (READONLY){
+    downloadMd((STATIC_MD && STATIC_MD[curTreeId]) || '');
+    expOpen(false);
+    return;
+  }
+  fetch('/api/md?tree=' + encodeURIComponent(curTreeId))
+    .then(function(r){ if (!r.ok) throw new Error('导出失败（HTTP ' + r.status + '）'); return r.text(); })
+    .then(function(t){ downloadMd(t); expOpen(false); })
+    .catch(function(e){
+      if (e instanceof TypeError){ netFailed(); return; }
+      toast(e.message);
+    });
+};
+document.getElementById('exp-ai').onclick = function(){ expRun(); };   // 再点一次 = 重新梳理
+document.getElementById('exp-stop').onclick = function(){ if (expAbort){ try { expAbort.abort(); } catch (e) {} } };
+document.getElementById('exp-save').onclick = function(){ expSave(); };
+/* 点面板以外的地方就收起（正在跑也不打断），免得它一直挂在画面上；Esc 同理 */
+document.addEventListener('mousedown', function(e){
+  var p = document.getElementById('exp');
+  if (!p.classList.contains('on')) return;
+  if (p.contains(e.target) || (e.target.closest && e.target.closest('#btn-md'))) return;
+  expOpen(false);
+}, true);
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Escape' && document.getElementById('exp').classList.contains('on')){
+    expOpen(false);
+  }
+});
+
+/* ---------- 笔记：和「树」并列的另一种文档 ----------
+   树 = 你当时想不通、要一层层追问的东西；笔记 = 已经想通、要成篇写下来的东西。
+   两种都是「写」，但笔记不参与连线和父子结构，就是一篇 markdown。 */
+var noteTimer = null, noteRendered = null;
+
+function noteById(id){
+  if (!S || !id) return null;
+  var arr = S.notes || [];
+  for (var i=0;i<arr.length;i++) if (arr[i].id === id) return arr[i];
+  return null;
+}
+
+function noteSaveSoon(){
+  if (READONLY) return;
+  clearTimeout(noteTimer);
+  noteTimer = setTimeout(flushNote, 700);
+}
+
+/* 把正文/标题存回去。只在真的变了才发请求，而且不回读 DOM（免得打字被抢焦点） */
+function flushNote(){
+  clearTimeout(noteTimer); noteTimer = null;
+  if (READONLY || !curNoteId) return;
+  var ti = document.getElementById('np-title'), ta = document.getElementById('np-md');
+  if (!ti || !ta) return;
+  var p = noteById(curNoteId);
+  if (!p) return;
+  if ((p.title || '') === ti.value && (p.md || '') === ta.value) return;
+  api({op:'set_note', id:curNoteId, title:ti.value, md:ta.value}).then(function(d){
+    S = d; renderTabs(); renderSide();      // 右侧的标题/字数/更新时间跟着刷新
+  }).catch(function(e){ toast(e.message); });
+}
+
+var NOTE_EMPTY = '<p class="ph">（空笔记，写点什么吧）</p>';
+
+function renderNote(){
+  var pane = document.getElementById('notepane');
+  var p = noteById(curNoteId);
+  if (!p){ curNoteId = null; noteRendered = null; pane.classList.remove('on'); render(); return; }
+  var ti = document.getElementById('np-title'), ta = document.getElementById('np-md');
+  // 只在「刚切到这篇」时灌内容：否则会打断正在输入的文字
+  if (noteRendered !== curNoteId){
+    ti.value = p.title || '';
+    ta.value = p.md || '';
+    noteRendered = curNoteId;
+    pane.classList.remove('preview');
+    document.getElementById('np-preview').textContent = '预览';
+  }
+  if (pane.classList.contains('preview'))
+    document.getElementById('np-view').innerHTML = mdToHtml(ta.value) || NOTE_EMPTY;
+}
+
+function openNote(id){
+  flushNote();
+  curNoteId = id;
+  noteRendered = null;
+  render();
+}
+
+/* 行内：`代码` / **粗体** / *斜体* / [链接](url)。刻意不认下划线强调 ——
+   公式里的 `_i` 这种下标被吃成斜体太讨厌了。 */
+function mdInline(s){
+  s = esc(s);
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>');
+  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  return s;
+}
+
+/* 极简 markdown -> HTML。节点正文和笔记共用同一套，行为必须一致。
+   换行按**标准 markdown** 的「软换行」：一个 \n 只是并进同一段，不产生换行
+   —— 从网页/PDF 复制公式时经常被塞进一堆假换行，硬保留它们会毁掉排版。
+   想在段内强行断一行，行尾留一个反斜杠或两个空格。 */
+function mdToHtml(md){
+  var lines = String(md || '').split('\n');
+  var out = [], list = null, code = null, para = null, lastHard = false;
+  function closeList(){
+    if (list === 'ul') out.push('</ul>');
+    else if (list === 'ol') out.push('</ol>');
+    list = null;
+  }
+  function closePara(){
+    if (para !== null){
+      // 拼行时补的空格别粘到标点前面（`(Γ′ , {ψ` -> `(Γ′, {ψ`）
+      out.push('<p>' + para.replace(/\s+([,，。；;：:、)】])/g, '$1') + '</p>');
+      para = null; lastHard = false;
+    }
+  }
+  function closeAll(){ closePara(); closeList(); }
+  function pushPara(html, hard){
+    if (para === null) para = html;
+    else para += (lastHard ? '<br>' : ' ') + html;
+    lastHard = hard;
+  }
+  for (var i=0;i<lines.length;i++){
+    var ln = lines[i];
+    if (code !== null){
+      if (/^\s*```/.test(ln)){ out.push('<pre><code>' + esc(code.join('\n')) + '</code></pre>'); code = null; }
+      else code.push(ln);
+      continue;
+    }
+    if (/^\s*```/.test(ln)){ closeAll(); code = []; continue; }
+    if (!ln.trim()){ closeAll(); continue; }
+    var h = /^(#{1,6})\s+(.*)$/.exec(ln);
+    if (h){ closeAll(); var n = h[1].length; out.push('<h' + n + '>' + mdInline(h[2]) + '</h' + n + '>'); continue; }
+    if (/^\s*(-{3,}|\*{3,})\s*$/.test(ln)){ closeAll(); out.push('<hr>'); continue; }
+    var q = /^>\s?(.*)$/.exec(ln);
+    if (q){ closeAll(); out.push('<blockquote>' + mdInline(q[1]) + '</blockquote>'); continue; }
+    var ul = /^\s*[-*+]\s+(.*)$/.exec(ln);
+    if (ul){
+      closePara();
+      if (list !== 'ul'){ closeList(); out.push('<ul>'); list = 'ul'; }
+      out.push('<li>' + mdInline(ul[1]) + '</li>'); continue;
+    }
+    var ol = /^\s*\d+[.)]\s+(.*)$/.exec(ln);
+    if (ol){
+      closePara();
+      if (list !== 'ol'){ closeList(); out.push('<ol>'); list = 'ol'; }
+      out.push('<li>' + mdInline(ol[1]) + '</li>'); continue;
+    }
+    closeList();
+    var hard = /\\$/.test(ln) || /\s\s$/.test(ln);
+    pushPara(mdInline(hard ? ln.replace(/[\s\\]+$/, '') : ln), hard);
+  }
+  if (code !== null) out.push('<pre><code>' + esc(code.join('\n')) + '</code></pre>');
+  closeAll();
+  return out.join('\n');
+}
+
+document.getElementById('np-md').oninput = noteSaveSoon;
+document.getElementById('np-title').oninput = noteSaveSoon;
+document.getElementById('np-md').onkeydown = function(e){
+  if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')){
+    e.preventDefault(); flushNote(); toast('已保存');
+  }
+};
+document.getElementById('np-preview').onclick = function(){
+  var pane = document.getElementById('notepane');
+  var on = pane.classList.toggle('preview');
+  this.textContent = on ? '编辑' : '预览';
+  if (on){
+    flushNote();
+    document.getElementById('np-view').innerHTML =
+      mdToHtml(document.getElementById('np-md').value) || NOTE_EMPTY;
+  }
+};
+document.getElementById('np-del').onclick = function(){
+  var p = noteById(curNoteId);
+  if (!p) return;
+  if (!confirm('删掉笔记「' + (p.title || '未命名笔记') + '」？')) return;
+  clearTimeout(noteTimer); noteTimer = null;
+  api({op:'del_note', id:curNoteId}).then(function(d){
+    S = d; curNoteId = null; noteRendered = null; render();
+  }).catch(function(e){ toast(e.message); });
+};
+document.getElementById('btn-note').onclick = function(){
+  if (guard()) return;
+  flushNote();
+  var before = {};
+  (S.notes || []).forEach(function(p){ before[p.id] = 1; });
+  api({op:'new_note', title:'', md:''}).then(function(d){
+    S = d;
+    var fresh = null;
+    (d.notes || []).forEach(function(p){ if (!before[p.id]) fresh = p.id; });
+    curNoteId = fresh; noteRendered = null;
+    render();
+    var ti = document.getElementById('np-title');
+    if (ti){ ti.focus(); ti.select(); }
+  }).catch(function(e){ toast(e.message); });
+};
+window.addEventListener('beforeunload', function(){ flushNote(); });
+
+/* ---------- 对话（右栏第二页签） ----------
+   极简：一个输入框 + 一条消息列表，多轮。历史只存在前端，每次原样整段交给 /api/chat，
+   后端流式吐回 NDJSON。不在这管模型配置 —— 那是终端里 `qp llm` 的事。 */
+var CHAT_KEY = 'qp-chat-v1';
+var chat = {msgs: [], busy: false};
+var chatAbort = null;            // 正在流的那个请求，点「停止」就 abort
+var sideTabCur = 'node', shownFocus = null;
+
+/* ---------- 右栏宽度（拖左边缘改，存在 localStorage） ---------- */
+var SIDE_KEY = 'qp-sidew', SIDE_MIN = 260, SIDE_MAX = 620, SIDE_DEF = 320;
+var sideWant = SIDE_DEF;
+
+function sideApply(){
+  // 窗口小的时候别让右栏把画布吃掉（但不动 sideWant，窗口变回去能还原）
+  var room = Math.max(SIDE_MIN, Math.min(SIDE_MAX, window.innerWidth - 360));
+  var w = Math.max(SIDE_MIN, Math.min(room, sideWant));
+  document.documentElement.style.setProperty('--sidew', w + 'px');
+}
+function sideSave(w){
+  sideWant = Math.max(SIDE_MIN, Math.min(SIDE_MAX, Math.round(w)));
+  sideApply();
+  try { localStorage.setItem(SIDE_KEY, String(sideWant)); } catch (e) {}
+}
+(function(){
+  try { sideWant = parseInt(localStorage.getItem(SIDE_KEY) || '', 10) || SIDE_DEF; }
+  catch (e) { sideWant = SIDE_DEF; }
+  sideApply();
+})();
+(function(){
+  // 拖这条边改宽度时会划过页面上的字，靠 #side-grip 自己的 user-select:none 挡住选区。
+  // 不要再去改 body.style.userSelect —— 万一 mouseup 丢了，整个应用就都选不中文字了。
+  var grip = document.getElementById('side-grip'), drag = false;
+  grip.addEventListener('mousedown', function(e){
+    e.preventDefault(); drag = true; grip.classList.add('on');
+  });
+  window.addEventListener('mousemove', function(e){
+    if (drag) sideSave(window.innerWidth - e.clientX);
+  });
+  window.addEventListener('mouseup', function(){
+    if (!drag) return;
+    drag = false; grip.classList.remove('on');
+  });
+  grip.addEventListener('dblclick', function(){ sideSave(SIDE_DEF); });
+})();
+window.addEventListener('resize', sideApply);
+
+function chatEls(){
+  return {side: document.getElementById('side'),
+          body: document.getElementById('chat-body'),
+          input: document.getElementById('chat-in'),
+          tip: document.getElementById('chat-tip'),
+          model: document.getElementById('chat-model'),
+          send: document.getElementById('chat-send')};
+}
+/* 右栏的页签切换。点「对话」时如果已经在对话，就切回节点 —— 一个按钮当开关用。 */
+function sideTab(name){
+  var e = chatEls();
+  sideTabCur = (name === 'chat') ? 'chat' : 'node';
+  e.side.classList.toggle('chat', sideTabCur === 'chat');
+  document.getElementById('tab-node').classList.toggle('on', sideTabCur === 'node');
+  document.getElementById('tab-chat').classList.toggle('on', sideTabCur === 'chat');
+  if (sideTabCur !== 'chat') return;
+  if (!chat.busy) chatPaint();     // 正在流式就别重画，不然那条正在长的气泡会被抽走
+  chatCfgTip();
+  e.input.focus();
+}
+function chatCfgTip(){
+  var e = chatEls();
+  req('/api/llm').then(function(d){
+    e.model.textContent = d.configured ? (d.model || '已配置') : '未配置模型';
+    if (d.configured) e.tip.innerHTML = '';
+    else if (sideTabCur === 'chat')
+      e.tip.innerHTML = '还没配模型。终端里跑一次 '
+        + '<code>qp llm --preset zhipu --key sk-xxx --global</code>，然后刷新本页。';
+  }).catch(function(){ /* 离线提示 req 里已经处理 */ });
+}
+function chatLoad(){
+  try { chat.msgs = JSON.parse(localStorage.getItem(CHAT_KEY) || '[]') || []; }
+  catch (e) { chat.msgs = []; }
+  if (!(chat.msgs instanceof Array)) chat.msgs = [];
+  chat.msgs = chat.msgs.filter(function(m){
+    return m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string';
+  });
+}
+function chatSave(){
+  try { localStorage.setItem(CHAT_KEY, JSON.stringify(chat.msgs.slice(-40))); } catch (e) {}
+}
+function chatBubble(m){
+  var b = document.createElement('div');
+  b.className = 'm ' + (m.role === 'user' ? 'u' : 'a') + (m.err ? ' err' : '');
+  if (m.role === 'user'){
+    b.textContent = m.content;
+  } else {
+    var inner = document.createElement('div');
+    inner.className = 'md';
+    inner.innerHTML = mdToHtml(m.content || '');
+    b.appendChild(inner);
+    if (m.stopped){
+      var mark = document.createElement('div');
+      mark.className = 'stopmark';
+      mark.textContent = '（已停止）';
+      b.appendChild(mark);
+    }
+  }
+  return b;
+}
+function chatPaint(){
+  var e = chatEls();
+  e.body.innerHTML = '';
+  if (!chat.msgs.length){
+    var ph = document.createElement('div');
+    ph.className = 'm a';
+    ph.innerHTML = '<div class="md"><p>问点什么，或者在气泡上点 💬 把它丢进来接着问。'
+      + '想整棵树一起过一遍，用顶栏的「导出」→ 「AI 梳理问题脉络」。</p></div>';
+    e.body.appendChild(ph);
+    return;
+  }
+  chat.msgs.forEach(function(m){ e.body.appendChild(chatBubble(m)); });
+  e.body.scrollTop = e.body.scrollHeight;
+}
+function chatPush(m){
+  var e = chatEls();
+  if (e.body.children.length === 1 && !chat.msgs.length) e.body.innerHTML = '';
+  chat.msgs.push(m);
+  var b = chatBubble(m);
+  e.body.appendChild(b);
+  e.body.scrollTop = e.body.scrollHeight;
+  return b;
+}
+function chatGrow(){
+  var ta = chatEls().input;
+  ta.style.height = 'auto';
+  ta.style.height = Math.min(ta.scrollHeight, 132) + 'px';
+}
+/* 流式时这一个按钮变「停止」—— 不给第二个按钮，就还是那一个。 */
+function chatBusy(on){
+  chat.busy = !!on;
+  var e = chatEls();
+  e.send.textContent = on ? '停止' : '发送';
+  e.send.classList.toggle('stop', !!on);
+  if (!on) chatAbort = null;
+}
+function chatStop(){
+  if (chatAbort){
+    try { chatAbort.abort(); } catch (e) {}
+  }
+}
+function chatSend(){
+  var e = chatEls();
+  if (chat.busy) return;
+  var text = e.input.value.trim();
+  if (!text) return;
+  e.input.value = ''; chatGrow();
+  var um = {role: 'user', content: text};
+  chatPush(um);
+  var am = {role: 'assistant', content: ''};
+  var el = chatPush(am);
+  chatAbort = new AbortController();
+  chatBusy(true);
+  chatSave();
+
+  var payload = chat.msgs.filter(function(m){ return !m.err && m.content; })
+    .map(function(m){ return {role: m.role, content: m.content}; });   // 末尾空的 assistant 自动被滤掉
+
+  fetch('/api/chat', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                      body: JSON.stringify({messages: payload}),
+                      signal: chatAbort.signal})
+    .then(function(r){
+      if (!r.ok){
+        return r.text().then(function(t){
+          var msg = 'HTTP ' + r.status;
+          try { var j = JSON.parse(t); if (j && j.error) msg = j.error; } catch (x) {}
+          throw new Error(msg);
+        });
+      }
+      var reader = r.body.getReader(), dec = new TextDecoder(), buf = '';
+      function pump(){
+        return reader.read().then(function(res){
+          if (res.done) return;
+          buf += dec.decode(res.value, {stream: true});
+          var i;
+          while ((i = buf.indexOf('\n')) >= 0){
+            var line = buf.slice(0, i); buf = buf.slice(i + 1);
+            if (!line.trim()) continue;
+            var o; try { o = JSON.parse(line); } catch (x) { continue; }
+            if (o.error) throw new Error(o.error);
+            if (o.d){
+              am.content += o.d;
+              if (el.isConnected) el.firstChild.innerHTML = mdToHtml(am.content);
+              e.body.scrollTop = e.body.scrollHeight;
+            }
+          }
+          return pump();
+        });
+      }
+      return pump();
+    })
+    .catch(function(err){
+      if (err && err.name === 'AbortError'){
+        // 自己按的停止，不算错。半截话留着 —— 接着追问「继续」是有用的上下文。
+        am.stopped = true;
+        if (!am.content){                       // 一个字都还没吐，就整条撤掉，别留空壳
+          var i = chat.msgs.indexOf(am);
+          if (i >= 0) chat.msgs.splice(i, 1);
+          if (el.isConnected) el.remove();
+          chatSave();
+          return;
+        }
+        if (el.isConnected){
+          var mark = document.createElement('div');
+          mark.className = 'stopmark';
+          mark.textContent = '（已停止）';
+          el.appendChild(mark);
+        }
+      } else {
+        am.err = true;
+        el.classList.add('err');
+        if (el.isConnected){
+          el.firstChild.innerHTML = mdToHtml(am.content)
+            + '<p class="ph">（' + esc(err.message || String(err)) + '）</p>';
+        }
+      }
+      e.body.scrollTop = e.body.scrollHeight;
+    })
+    .then(function(){
+      chatBusy(false); chatSave();
+      if (sideTabCur === 'chat') e.input.focus();   // 期间切去看节点了就别抢焦点
+    });
+}
+/* 把一个气泡的原话放进输入框（不自动发），接着写要求就行 */
+/* 点气泡 = 想看这个节点。已经聚焦在它身上时（focus 没变，不会触发重渲染），
+   如果右边栏正停在「对话」，手动切回「节点」，免得点了像没反应。 */
+function focusNode(n){
+  if (n.id !== focusId) submit({op:'focus', id: n.id});
+  else if (sideTabCur === 'chat') sideTab('node');
+}
+function askNode(id){
+  var n = nodeById(id);
+  if (!n) return;
+  sideTab('chat');
+  var e = chatEls();
+  e.input.value = n.raw || '';
+  chatGrow();
+  e.input.focus();
+  toast('已放进输入框，接着写你的要求');
+}
+
+document.getElementById('tab-node').onclick = function(){ sideTab('node'); };
+document.getElementById('tab-chat').onclick = function(){
+  sideTab(sideTabCur === 'chat' ? 'node' : 'chat');
+};
+document.getElementById('chat-send').onclick = function(){
+  if (chat.busy) chatStop(); else chatSend();
+};
+document.getElementById('chat-in').oninput = chatGrow;
+document.getElementById('chat-in').onkeydown = function(e){
+  if (e.isComposing || e.keyCode === 229) return;
+  if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); chatSend(); }
+  else if (e.key === 'Escape'){ e.preventDefault(); sideTab('node'); }
+};
+document.getElementById('chat-clear').onclick = function(){
+  if (!chat.msgs.length) return;
+  if (!confirm('清空这轮对话？')) return;
+  chat.msgs = [];
+  chatSave();
+  chatPaint();
+};
+
+/* ---------- 启动 ---------- */
+(function boot(){
+  if (HOME) document.getElementById('btn-back').style.display = '';
+  if (READONLY){
+    document.getElementById('btn-relayout').style.display = 'none';
+    document.getElementById('tab-chat').style.display = 'none';   // 只读快照没服务，聊不了
+  } else {
+    chatLoad();
+  }
+  if (READONLY){
+    S = STATIC_DATA;
+    if (S.focus) focusId = S.focus;
+    var t0 = treeOfNode(focusId) || S.trees[0] || null;
+    curTreeId = t0 ? t0.id : null;
+    render();
+    showOffline(true, READONLY_MSG, false);
+    return;
+  }
+  api().then(function(d){
+    S = d;
+    if (S.focus) focusId = S.focus;
+    var t = treeOfNode(focusId) || S.trees[0] || null;
+    curTreeId = t ? t.id : null;
+    render();
+  }).catch(function(e){ toast(e.message); });
+})();
+</script>
+</body>
+</html>

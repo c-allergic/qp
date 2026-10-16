@@ -769,7 +769,11 @@ function renderCanvas(){
     if (!isEditing){
       el.addEventListener('mousedown', function(e){
         if (READONLY || e.button !== 0) return;
-        if (e.target.closest('.acts') || e.target.closest('textarea')) return;
+        // 气泡里的控件（操作条 / 输入框 / 展开·收起 / 缩略图上的按钮）按下时不该顺带拖节点。
+        // 尤其是「展开 / 收起」：手抖几个像素就会被当成一次拖动，把节点钉到一个手工坐标上，
+        // 而且每次都叠一点，来回点几次节点就漂走、和别的节点连线错位 —— 重建渲染也回不去。
+        if (e.target.closest('.acts') || e.target.closest('textarea')
+            || e.target.closest('.fold') || e.target.closest('button')) return;
         nodeDrag = {
           el: el, id: n.id, x0: e.clientX, y0: e.clientY,
           l0: parseFloat(el.style.left) || 0,

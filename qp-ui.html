@@ -34,6 +34,27 @@ textarea:focus,input:focus{outline:none;background:var(--paper2)}
 #tabs .tab.on{background:var(--ink);color:var(--paper)}
 #tabs .tab.note{border-style:dashed;color:var(--ink2)}
 #tabs .tab.note.on{border-style:solid;color:var(--paper)}
+#tabs .tab.more{flex:none;font-weight:bold}
+
+/* 「全部」面板：树多了顶栏装不下，就在这里切换 / 删掉暂时不看的 */
+#treebox{position:fixed;top:44px;left:12px;width:380px;max-width:calc(100vw - 24px);
+  max-height:64vh;overflow:auto;background:var(--paper);border:1.5px solid var(--ink);
+  border-radius:10px;padding:8px;z-index:40;display:none}
+#treebox.on{display:block}
+#treebox .k{font-size:11px;color:var(--ink3);margin:4px 0 4px 6px}
+#treebox .k.sep{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+#treebox .trow{display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:8px;
+  cursor:pointer;font-size:12.5px}
+#treebox .trow:hover{background:var(--paper2)}
+#treebox .trow.on{background:var(--ink);color:var(--paper)}
+#treebox .trow .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#treebox .trow .mt{flex:none;font-size:10.5px;color:var(--ink4)}
+#treebox .trow.on .mt{color:var(--paper2)}
+#treebox .trow .x{flex:none;border:none;background:none;padding:0 4px;font-size:12px;
+  color:inherit;opacity:.5}
+#treebox .trow .x:hover{background:none;color:var(--ink);opacity:1}
+#treebox .trow.on .x:hover{color:var(--paper)}
+#treebox .none{font-size:11px;color:var(--ink3);padding:6px}
 
 #stage{position:fixed;top:44px;bottom:0;right:var(--sidew);left:0;overflow:hidden;cursor:grab;
   background-color:var(--paper);
@@ -304,6 +325,7 @@ body.linking #stage{cursor:crosshair}
   <button id="btn-new">＋ 新树</button>
   <button id="btn-note">＋ 笔记</button>
 </div>
+<div id="treebox"></div>
 
 <div id="stage">
   <div id="canvas"><svg id="edges"></svg></div>
@@ -549,40 +571,171 @@ function render(){
   hint.textContent = empty ? '还没有树\n点右上「＋ 新树」写下你最初想问什么' : '';
 }
 
-function renderTabs(){
-  var box = document.getElementById('tabs');
-  box.innerHTML = '';
+var TAB_MAX = 5;   // 顶栏最多平铺几个；再多就收进「全部」面板，别把 bar 挤满
+var TREEBOX = document.getElementById('treebox');
+
+/* 顶栏那一排和「全部」面板共用这一份清单，省得两处各写一遍 */
+function tabItems(){
+  var out = [], eff = curTree();
+  // 正在写「新树」时不点亮任何一棵；在看笔记时也不点亮
+  var curTid = (eff && !curNoteId && !(draft && draft.parent === null)) ? eff.id : null;
   S.trees.forEach(function(t){
     var root = null;
     for (var i=0;i<t.nodes.length;i++) if (!t.nodes[i].parent){ root = t.nodes[i]; break; }
-    var b = document.createElement('button');
-    var on = (t.id === curTreeId) && !curNoteId && !(draft && draft.parent === null);
-    b.className = 'tab' + (on ? ' on' : '');
-    b.textContent = root ? labelOf(root) : t.id;
-    b.title = (t.source ? t.source + '\n' : '') + (root ? root.raw : '');
-    b.onclick = function(){
-      stopEditing(); closeLink(); flushNote();
-      curNoteId = null; noteRendered = null;
-      curTreeId = t.id;
-      if (root && root.id !== focusId) submit({op:'focus', id: root.id});
-      else render();
-    };
-    box.appendChild(b);
+    out.push({
+      k: 'tree', id: t.id, on: t.id === curTid,
+      label: root ? labelOf(root) : t.id,
+      tip: (t.source ? t.source + '\n' : '') + (root ? root.raw : ''),
+      meta: t.nodes.length + ' 节点' + (t.source ? ' · ' + t.source : ''),
+      go: function(){
+        stopEditing(); closeLink(); flushNote();
+        curNoteId = null; noteRendered = null;
+        curTreeId = t.id;
+        if (root && root.id !== focusId) submit({op:'focus', id: root.id});
+        else render();
+      },
+      del: function(){ delTree(t, root); },
+    });
   });
   (S.notes || []).forEach(function(p){
-    var b = document.createElement('button');
-    b.className = 'tab note' + (p.id === curNoteId ? ' on' : '');
-    b.textContent = '▤ ' + (p.title || '未命名笔记');
-    b.title = '笔记';
-    b.onclick = function(){ stopEditing(); closeLink(); openNote(p.id); };
-    box.appendChild(b);
+    out.push({
+      k: 'note', id: p.id, on: p.id === curNoteId,
+      label: '▤ ' + (p.title || '未命名笔记'), tip: '笔记', meta: '笔记',
+      go: function(){ stopEditing(); closeLink(); openNote(p.id); },
+      del: function(){ delNote(p); },
+    });
   });
-  if (draft && draft.parent === null){
-    var nb = document.createElement('button');
-    nb.className = 'tab on'; nb.textContent = '新树…';
-    nb.onclick = function(){ stopEditing(); render(); };
-    box.appendChild(nb);
+  if (draft && draft.parent === null)
+    out.push({k:'draft', id:'__draft__', on:true, label:'新树…', tip:'', meta:'',
+              go: function(){ stopEditing(); render(); }});
+  return out;
+}
+
+function tabEl(x){
+  var b = document.createElement('button');
+  b.className = 'tab' + (x.k === 'note' ? ' note' : '') + (x.on ? ' on' : '');
+  b.textContent = x.label;
+  b.title = x.tip;
+  b.onclick = x.go;
+  return b;
+}
+
+function renderTabs(){
+  var box = document.getElementById('tabs');
+  var items = tabItems();
+  var open = TREEBOX.classList.contains('on');
+  var many = items.length > TAB_MAX;
+  var cur = items.filter(function(x){ return x.on; });
+  box.innerHTML = '';
+  // 装不下（或面板正开着）就只留「当前这一个」，其余进面板
+  var show = (many || open) ? (cur.length ? [cur[0]] : items.slice(0, 1)) : items;
+  show.forEach(function(x){ box.appendChild(tabEl(x)); });
+  if (many || open){
+    var b = document.createElement('button');
+    b.className = 'tab more';
+    b.textContent = '▾ 全部' + (many ? ' ' + items.length : '');
+    b.title = '切换 / 管理所有树和笔记';
+    b.onclick = function(e){
+      e.stopPropagation();
+      treeBoxOpen(!TREEBOX.classList.contains('on'));
+      renderTabs();
+    };
+    box.appendChild(b);
   }
+  if (open) renderTreeBox(items);
+}
+
+function treeBoxOpen(on){
+  TREEBOX.classList.toggle('on', !!on);
+  if (on) renderTreeBox(tabItems());
+}
+
+function boxRow(x){
+  var r = document.createElement('div');
+  r.className = 'trow' + (x.on ? ' on' : '');
+  r.dataset.k = x.k; r.dataset.i = x.id;
+  if (x.tip) r.title = x.tip;
+  var nm = document.createElement('span');
+  nm.className = 'nm'; nm.textContent = x.label;
+  r.appendChild(nm);
+  if (x.meta){
+    var mt = document.createElement('span');
+    mt.className = 'mt'; mt.textContent = x.meta;
+    r.appendChild(mt);
+  }
+  if (x.del){
+    var b = document.createElement('button');
+    b.className = 'x'; b.textContent = '✕'; b.dataset.del = '1';
+    b.title = '删除';
+    r.appendChild(b);
+  }
+  return r;
+}
+
+function renderTreeBox(items){
+  var trees = items.filter(function(x){ return x.k === 'tree'; });
+  var notes = items.filter(function(x){ return x.k === 'note'; });
+  TREEBOX.innerHTML = '';
+  if (trees.length){
+    var k1 = document.createElement('div');
+    k1.className = 'k'; k1.textContent = '树（' + trees.length + '）';
+    TREEBOX.appendChild(k1);
+    trees.forEach(function(x){ TREEBOX.appendChild(boxRow(x)); });
+  }
+  if (notes.length){
+    var k2 = document.createElement('div');
+    k2.className = 'k sep'; k2.textContent = '笔记（' + notes.length + '）';
+    TREEBOX.appendChild(k2);
+    notes.forEach(function(x){ TREEBOX.appendChild(boxRow(x)); });
+  }
+  if (!trees.length && !notes.length){
+    var e = document.createElement('div');
+    e.className = 'none'; e.textContent = '还没有树';
+    TREEBOX.appendChild(e);
+  }
+}
+
+TREEBOX.addEventListener('click', function(e){
+  var row = e.target.closest ? e.target.closest('.trow') : null;
+  if (!row) return;
+  var k = row.dataset.k, id = row.dataset.i;
+  var hit = tabItems().filter(function(x){ return x.k === k && x.id === id; })[0];
+  if (!hit) return;
+  e.stopPropagation();
+  if (e.target.closest('.x')){ if (hit.del) hit.del(); return; }
+  treeBoxOpen(false);
+  hit.go();
+});
+
+document.addEventListener('mousedown', function(e){
+  if (!TREEBOX.classList.contains('on')) return;
+  if (TREEBOX.contains(e.target)) return;
+  if (e.target.closest && e.target.closest('#tabs .more')) return;
+  treeBoxOpen(false); renderTabs();
+}, true);
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Escape' && TREEBOX.classList.contains('on')){
+    treeBoxOpen(false); renderTabs();
+  }
+});
+
+function delTree(t, root){
+  var n = t.nodes.length;
+  var who = root ? labelOf(root) : t.id;
+  if (!confirm('删除「' + who + '」整棵树' + (n > 1 ? '（' + n + ' 个节点）' : '') + '？')) return;
+  treeBoxOpen(false);
+  submit({op:'del_tree', tree: t.id});
+}
+
+function delNote(p){
+  if (!confirm('删掉笔记「' + (p.title || '未命名笔记') + '」？')) return;
+  treeBoxOpen(false);
+  clearTimeout(noteTimer); noteTimer = null;
+  api({op:'del_note', id: p.id}).then(function(d){
+    S = d;
+    if (curNoteId === p.id){ curNoteId = null; noteRendered = null; }
+    render();
+  }).catch(function(e){ toast(e.message); });
 }
 
 function draftNode(parent){

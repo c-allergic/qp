@@ -377,6 +377,27 @@ def op_delete(store, nid):
     return sorted(doomed)
 
 
+def op_del_tree(store, tree_id):
+    """整棵树删掉。
+
+    不能只删「找到的第一个根」—— 图片节点刚粘进来时 parent 是空的，
+    会平挂在同一棵树里，所以一棵树可能有不止一个根。按 tree_id 整个摘掉才干净。
+    """
+    data = store.data
+    tree = tree_by_token(data, tree_id)
+    doomed = set(n["id"] for n in tree["nodes"])
+    data["trees"] = [t for t in data["trees"] if t["id"] != tree["id"]]
+    if data.get("focus") in doomed:
+        data["focus"] = None
+        for t in data["trees"]:          # 挪到第一棵还有节点（优先根）的树上
+            rs = roots_of(t)
+            if rs:
+                data["focus"] = rs[0]["id"]
+                break
+    store.save()
+    return sorted(doomed)
+
+
 def op_focus(store, nid):
     if nid is not None and find_node(store.data, nid)[1] is None:
         die("找不到节点 %r" % nid)
@@ -606,6 +627,8 @@ def apply_op(store, req):
         return op_reopen(store, req["id"])
     if op == "delete":
         return op_delete(store, req["id"])
+    if op == "del_tree":
+        return op_del_tree(store, req["tree"])
     if op == "focus":
         return op_focus(store, req.get("id"))
     if op == "set_fields":
